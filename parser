@@ -14,6 +14,7 @@ class Parser
     Expression* parse_Expression(); // wyrażenie
     Expression* parse_Constant();   // liczba
     Expression* parse_Variable();   // nazwa zmiennej
+    Expression* parse_Section();    // blok
 };
 
 Expression* Parser::parse_Expression()
@@ -44,4 +45,14 @@ Expression* Parser::parse_Variable()
 {
   Expression* e = NULL;
  //tutaj będzie sprawdzana zgodność nazwy zmiennej z ustaloną gramatyką
+}
+
+
+Expression* Parser::parse_Section()
+{
+  Expression* e = NULL;
+  //sprawdź nazwę zmiennej
+  //sprawdź wyrażenie
+  //sprawdź, czy są kolejne nawiasy
+ 
 }
