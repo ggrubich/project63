@@ -40,7 +40,7 @@ Expression* Parser::parse_Constant()
   }
 }
 
-Expression* Parser::parse_Constant()
+Expression* Parser::parse_Variable()
 {
   Expression* e = NULL;
  //tutaj będzie sprawdzana zgodność nazwy zmiennej z ustaloną gramatyką
