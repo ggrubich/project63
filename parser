@@ -43,10 +43,16 @@ Expression* Parser::parse_Constant()
   }
 }
 
+
 Expression* Parser::parse_Variable()
 {
-  Expression* e = NULL;
- //tutaj będzie sprawdzana zgodność nazwy zmiennej z ustaloną gramatyką
+  string s;
+  while (isalnum(input[position]))
+  {
+    s.push_back(input[position]);
+    position++;
+  }
+  return new Variable(s);
 }
 
 
@@ -59,21 +65,15 @@ Expression* Parser::parse_Section()
  
 }
 
+
+
 Expression* Parser::parse_String()
 {
   Expression* e = NULL;
  
   try
   {
-    e = parse_mult();
-    char c = look_ahead();
- 
-    while(c == '+' || c == '-')
-    {
-      position++;
-      e = new Binary_operator(c, e, parse_mult());
-      c = look_ahead();
-    }
+    // kod
   }
   catch (Not_parsed)
   {
