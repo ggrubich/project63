@@ -44,7 +44,7 @@ Expression* Parser::parse_Constant()
 }
 
 
-Expression* Parser::parse_Variable()
+Expression* Parser::parse_Variable()    // zmienna
 {
   string s;
   while (isalnum(input[position]))
@@ -56,16 +56,44 @@ Expression* Parser::parse_Variable()
 }
 
 
-Expression* Parser::parse_Section()
+Expression* Parser::parse_Section() // blok
 {
   Expression* e = NULL;
   //sprawdź nazwę zmiennej
   //sprawdź wyrażenie
   //sprawdź, czy są kolejne nawiasy
+  
+  try
+  {
+    e = parse_Brackets();
+    char c = look_ahead();
  
+    while(c == '')
+    {
+      position++;
+      e = new Binary_operator(c, e, parse_Brackets());
+      c = look_ahead();
+    }
+  }
+  catch (Not_parsed)
+  {
+    delete e;
+    throw Not_parsed();
+  }
+ 
+  return e;
 }
 
-
+if (look_ahead() == ')')
+  {
+    position++;                                     //////////// niegotowe
+    return e;
+  }
+  else
+  {
+    delete e;
+    throw Not_parsed();
+  }
 
 Expression* Parser::parse_String()
 {
@@ -84,7 +112,7 @@ Expression* Parser::parse_String()
   return e;
 }
 
-Expression* Parser::parse_Bracket()
+Expression* Parser::parse_Bracket() // nawiasy
 {
 position++;
 
