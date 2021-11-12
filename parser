@@ -31,9 +31,9 @@ Expression* Parser::parse_Expression()
   }
 }
 
-Expression* Parser::parse_Constant()
+Expression* Parser::parse_Constant()    // liczba
 {
-  Expression* e = parse_Variable();
+  Expression* e = parse_Variable();     // zmienna
   if (look_ahead() == EOS)
     return e;
   else
@@ -62,17 +62,20 @@ Expression* Parser::parse_Section() // blok
   //sprawdź nazwę zmiennej
   //sprawdź wyrażenie
   //sprawdź, czy są kolejne nawiasy
+  // jeśli znaleziono '{' - sprawdź, czy będzie '}', jesli będzie kolejne '{', to przejdź do kolejnego warunku
   
   try
   {
     e = parse_Brackets();
     char c = look_ahead();
  
-    while(c == '')
+    while(c != '}')
     {
       position++;
       e = new Binary_operator(c, e, parse_Brackets());
       c = look_ahead();
+      
+      //jeśli 
     }
   }
   catch (Not_parsed)
