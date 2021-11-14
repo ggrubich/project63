@@ -97,6 +97,24 @@ if (look_ahead() == ')')
     delete e;
     throw Not_parsed();
   }
+  
+  
+  
+Expression* Parser::parse_Brackets()  // nawiasy
+{
+  position++; 
+  Expression* e = parse_sum();
+  if (look_ahead() == ')')
+  {
+    position++;
+    return e;
+  }
+  else
+  {
+    delete e;
+    throw Not_parsed();
+  }
+}
 
 Expression* Parser::parse_String()
 {
@@ -115,15 +133,22 @@ Expression* Parser::parse_String()
   return e;
 }
 
-Expression* Parser::parse_Bracket() // nawiasy
+Expression* Parser::parse_Braces() // nawiasy klamrowe
 {
 position++;
 
-  Expression* e = parse_string();
-  if (look_ahead() == ')')
+  int brace = 1;
+  Expression* e = parse_Variable();
+  if (look_ahead() == '}')
   {
+    brace--;
     position++;
     return e;
+  }
+  else if (look_ahead() == '{')
+  {
+    brace++;
+    position++;
   }
   else
   {
