@@ -118,19 +118,18 @@ Expression* Parser::parse_Brackets()  // nawiasy
 
 Expression* Parser::parse_String()
 {
-  Expression* e = NULL;
- 
-  try
-  {
-    // kod
+  char *token;
+  char *rest = str;
+  
+  if ((token = strtok_r(rest, " ", &rest))){
+        printf("%s\n", token);
   }
-  catch (Not_parsed)
-  {
-    delete e;
+  else{
+    delete token;
     throw Not_parsed();
   }
  
-  return e;
+  return token;
 }
 
 Expression* Parser::parse_Braces() // nawiasy klamrowe
