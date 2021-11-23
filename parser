@@ -132,6 +132,19 @@ Expression* Parser::parse_String()
   return token;
 }
 
+Expression* Parser::parse_String_v2()
+{
+    string *str;
+    char *ptr;
+    ptr = strtok(str, " , ");
+    while (ptr != NULL)  
+    {  
+        cout << ptr  << endl;  
+        ptr = strtok (NULL, " , ");  
+    }  
+    return 0;  
+ }
+
 Expression* Parser::parse_Braces() // nawiasy klamrowe
 {
 position++;
@@ -166,8 +179,8 @@ int closeBrackets = e.replaceAll("}", "").length();
 	if (openBrackets != closeBrackets) { 
 	    cout << "Nawiasy klamrowe nie są domknięte!" << endl;
         return 1;
-	}
-    else{
+	} else {
+	
         return 0;
     } 
 }
