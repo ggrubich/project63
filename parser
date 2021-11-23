@@ -15,8 +15,8 @@ class Parser
     Expression* parse_Constant();   // liczba
     Expression* parse_Variable();   // nazwa zmiennej
     Expression* parse_Section();    // blok
-    Expression* parse_Bracket()     // nawias
-    Expression* parse_String()      // napis
+    Expression* parse_Bracket();    // nawias
+    Expression* parse_String();     // napis
 };
 
 Expression* Parser::parse_Expression()
@@ -155,3 +155,20 @@ position++;
     throw Not_parsed();
   }
 }
+
+Expression* Parser::parse_Braces_v2() // nawiasy klamrowe
+{
+string s;
+
+int openBrackets = s.replaceAll("{", "").length();
+int closeBrackets = s.replaceAll("}", "").length();
+
+	if (openBrackets != closeBrackets) { 
+	    cout << "Nawiasy klamrowe nie są domknięte!" << endl;
+        return 1;
+	}
+    else{
+        return 0;
+    } 
+}
+
