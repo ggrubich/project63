@@ -139,8 +139,8 @@ public:
 	friend void swap(Collector&, Collector&);
 
 	// Allocates a new gc managed pointer.
-	template<typename T>
-	Ptr<T> alloc(T value);
+	template<typename T, typename... Args>
+	Ptr<T> alloc(Args&&... args);
 
 	// Triggers a gc cycle.
 	void collect();
@@ -235,8 +235,8 @@ void Collector::do_free(detail::Box<void>* untyped) {
 	delete typed->value;
 }
 
-template<typename T>
-Ptr<T> Collector::alloc(T value) {
+template<typename T, typename... Args>
+Ptr<T> Collector::alloc(Args&&... args) {
 	if (allocations >= treshold) {
 		collect();
 		treshold = std::max(allocations * 2, size_t(128));
@@ -248,7 +248,7 @@ Ptr<T> Collector::alloc(T value) {
 	box->trace = do_trace<T>;
 	box->free = do_free<T>;
 	box->next = box_head;
-	box->value = new T(std::move(value));
+	box->value = new T(std::forward<Args>(args)...);
 	box_head = (detail::Box<void>*)box;
 	allocations += 1;
 	return Ptr(box);
