@@ -158,10 +158,10 @@ position++;
 
 Expression* Parser::parse_Braces_v2() // nawiasy klamrowe
 {
-string s;
+Expression* e = parse_Constant();
 
-int openBrackets = s.replaceAll("{", "").length();
-int closeBrackets = s.replaceAll("}", "").length();
+int openBrackets = e.replaceAll("{", "").length();
+int closeBrackets = e.replaceAll("}", "").length();
 
 	if (openBrackets != closeBrackets) { 
 	    cout << "Nawiasy klamrowe nie są domknięte!" << endl;
