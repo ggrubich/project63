@@ -77,7 +77,6 @@ template<typename T>
 class Ptr {
 	friend class Tracer;
 	template<typename U> friend class Root;
-	friend class Collector;
 
 private:
 	detail::TBox<T>* box;
@@ -95,16 +94,23 @@ public:
 	bool valid() const;
 
 	// Attempts to root the pointer. Rooting an invalid pointer throws an exception.
-	Root<T> rooted();
+	Root<T> rooted() const;
+	operator Root<T>() const;
 };
 
-// RAII guard representing a rooted pointer. Existence of a Root guarantees
-// that the underlying pointer will not be invalidated for the duration of its
-// lifetime.
+// RAII guard representing a rooted pointer. Existence of a root guarantees
+// that the underlying pointer and pointers reachable from it via tracing
+// will not be invalidated for the duration of root's lifetime.
 // Contained data can be accessed by dereferencing the root.
+//
+// Generally, roots should be used on the stack - in local or global variables.
+// An object managed by gc should not contain references to roots - use Ptr for
+// those instead. In particular, one should avoid creating root cycles, as those
+// can cause memory leaks.
 template<typename T>
 class Root {
 	template<typename U> friend class Ptr;
+	friend class Collector;
 
 private:
 	detail::TBox<T>* box;
@@ -112,19 +118,16 @@ private:
 	explicit Root(detail::TBox<T>* box);
 
 public:
-	// Root is supposed to be used as a stack-only guard.
-	// Copy and move constructors are deleted to make creation of root cycles
-	// impossible, as those would lead to memory leaks.
-	Root(const Root<T>&) = delete;
-	Root(Root<T>&&) = delete;
-	Root& operator=(Root<T>) = delete;
-
 	~Root();
+	Root(const Root<T>&);
+	Root& operator=(Root<T>);
 
 	T& operator*() const noexcept;
 	T* operator->() const noexcept;
 
-	Ptr<T> unrooted();
+	// Returns un unrooted version of the pointer.
+	Ptr<T> unrooted() const;
+	operator Ptr<T>() const;
 };
 
 // The garbage collector object.
@@ -146,7 +149,7 @@ public:
 
 	// Allocates a new gc managed pointer.
 	template<typename T, typename... Args>
-	Ptr<T> alloc(Args&&... args);
+	Root<T> alloc(Args&&... args);
 
 	// Triggers a gc cycle.
 	void collect();
@@ -211,11 +214,16 @@ bool Ptr<T>::valid() const {
 }
 
 template<typename T>
-Root<T> Ptr<T>::rooted() {
+Root<T> Ptr<T>::rooted() const {
 	if (!valid()) {
 		throw std::runtime_error("can't root invalid Ptr");
 	}
 	return Root(box);
+}
+
+template<typename T>
+Ptr<T>::operator Root<T>() const {
+	return rooted();
 }
 
 template<typename T>
@@ -229,6 +237,15 @@ Root<T>::~Root() {
 }
 
 template<typename T>
+Root<T>::Root(const Root<T>& root) : Root(root.box) {}
+
+template<typename T>
+Root<T>& Root<T>::operator=(Root<T> root) {
+	std::swap(box, root.box);
+	return *this;
+}
+
+template<typename T>
 T& Root<T>::operator*() const noexcept {
 	return *reinterpret_cast<T*>(box->value);
 }
@@ -239,12 +256,17 @@ T* Root<T>::operator->() const noexcept {
 }
 
 template<typename T>
-Ptr<T> Root<T>::unrooted() {
+Ptr<T> Root<T>::unrooted() const {
 	return Ptr(box);
 }
 
+template<typename T>
+Root<T>::operator Ptr<T>() const {
+	return unrooted();
+}
+
 template<typename T, typename... Args>
-Ptr<T> Collector::alloc(Args&&... args) {
+Root<T> Collector::alloc(Args&&... args) {
 	static_assert(Traceable<T>::enabled,
 			"Objects managed by the gc need to implement Traceable");
 	if (allocations >= treshold) {
@@ -260,5 +282,5 @@ Ptr<T> Collector::alloc(Args&&... args) {
 	new(box->value) T(std::forward<Args>(args)...);
 	box_head = box;
 	allocations += 1;
-	return Ptr(box);
+	return Root(box);
 }
