@@ -1,0 +1,6 @@
+bazel-bin
+bazel-out
+bazel-project63
+bazel-testlogs
+
+old/
