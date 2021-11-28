@@ -2,7 +2,7 @@
 
 #include <vector>
 
-Tracer::Tracer(std::function<void(detail::Box<void>*)> callback)
+Tracer::Tracer(std::function<void(detail::Box*)> callback)
 	: callback(callback)
 {}
 
@@ -35,7 +35,7 @@ void swap(Collector& a, Collector& b) {
 
 void Collector::collect() {
 	// mark
-	std::vector<detail::Box<void>*> queue;
+	std::vector<detail::Box*> queue;
 	auto tracer = Tracer([&](auto box) {
 		if (!box->marked) {
 			box->marked = true;
@@ -51,7 +51,7 @@ void Collector::collect() {
 	while (!queue.empty()) {
 		auto box = queue.back();
 		queue.pop_back();
-		box->trace(box, tracer);
+		box->trace(tracer);
 	}
 	// sweep
 	auto box = box_head;
@@ -64,13 +64,13 @@ void Collector::collect() {
 			box_head = box;
 		}
 		else {
-			if (box->value != nullptr) {
-				box->free(box);
-				box->value = nullptr;
-				allocations -= 1;
+			if (box->valid) {
+				box->destroy();
+				box->valid = false;
 			}
 			if (box->ptrs == 0) {
 				delete box;
+				allocations -= 1;
 			}
 			else {
 				box->next = box_head;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <stdexcept>
 
@@ -11,20 +12,34 @@ template<typename T> class Root;
 
 namespace detail {
 
-// Internal node used by the garbage collector.
-template<typename T>
+// Base class for internal nodes used by the garbage collector.
 struct Box {
+	// True if contanied value was not destroyed yet.
+	bool valid;
+	// Switches to true after being visited in the mark phase.
 	bool marked;
 	// Number of existing roots.
 	uint64_t roots;
 	// Number of existing weak pointers.
 	uint64_t ptrs;
-	void (*trace)(Box<void>*, Tracer&);
-	void (*free)(Box<void>*);
 	// Linked list of all boxes.
-	Box<void>* next;
-	// Data itself. Can be null if deallocated.
-	T* value;
+	Box* next;
+
+	virtual ~Box() = default;
+	// Calls Traceable::trace on the contained value.
+	virtual void trace(Tracer&) = 0;
+	// Calls the destructor on the contained value.
+	virtual void destroy() = 0;
+};
+
+// Box implementation for a specific type.
+template<typename T>
+struct TBox : public Box {
+	// Contained value managed by the gc.
+	alignas(T) uint8_t value[sizeof(T)];
+
+	void trace(Tracer& t) override;
+	void destroy() override;
 };
 
 }  // namespace detail
@@ -34,9 +49,9 @@ class Tracer {
 	friend class Collector;
 
 private:
-	std::function<void(detail::Box<void>*)> callback;
+	std::function<void(detail::Box*)> callback;
 
-	explicit Tracer(std::function<void(detail::Box<void>*)>);
+	explicit Tracer(std::function<void(detail::Box*)>);
 
 public:
 	template<typename T>
@@ -65,9 +80,9 @@ class Ptr {
 	friend class Collector;
 
 private:
-	detail::Box<T>* box;
+	detail::TBox<T>* box;
 
-	explicit Ptr(detail::Box<T>* box);
+	explicit Ptr(detail::TBox<T>* box);
 
 public:
 	Ptr();
@@ -92,9 +107,9 @@ class Root {
 	template<typename U> friend class Ptr;
 
 private:
-	detail::Box<T>* box;
+	detail::TBox<T>* box;
 
-	explicit Root(detail::Box<T>* box);
+	explicit Root(detail::TBox<T>* box);
 
 public:
 	// Root is supposed to be used as a stack-only guard.
@@ -114,19 +129,10 @@ public:
 
 // The garbage collector object.
 class Collector {
-	friend class Tracer;
-	template<typename T> friend class Ptr;
-	template<typename T> friend class Root;
-
 private:
-	detail::Box<void>* box_head;
+	detail::Box* box_head;
 	size_t allocations;
 	size_t treshold;
-
-	template<typename T>
-	static void do_trace(detail::Box<void>*, Tracer&);
-	template<typename T>
-	static void do_free(detail::Box<void>*);
 
 public:
 	Collector();
@@ -148,13 +154,28 @@ public:
 
 // Implementations
 
+namespace detail {
+
 template<typename T>
-void Tracer::visit(Ptr<T> ptr) {
-	callback((detail::Box<void>*)ptr.box);
+void TBox<T>::trace(Tracer& t) {
+	Traceable<T>::trace(*reinterpret_cast<T*>(value), t);
 }
 
 template<typename T>
-Ptr<T>::Ptr(detail::Box<T>* box) : box(box) {
+void TBox<T>::destroy() {
+	reinterpret_cast<T*>(value)->~T();
+	std::memset(value, 0, sizeof(T));
+}
+
+}  // namespace detail
+
+template<typename T>
+void Tracer::visit(Ptr<T> ptr) {
+	callback(ptr.box);
+}
+
+template<typename T>
+Ptr<T>::Ptr(detail::TBox<T>* box) : box(box) {
 	if (box != nullptr) {
 		box->ptrs += 1;
 	}
@@ -186,7 +207,7 @@ Ptr<T>& Ptr<T>::operator=(Ptr<T> ptr) {
 
 template<typename T>
 bool Ptr<T>::valid() const {
-	return box != nullptr && box->value != nullptr;
+	return box != nullptr && box->valid;
 }
 
 template<typename T>
@@ -198,7 +219,7 @@ Root<T> Ptr<T>::rooted() {
 }
 
 template<typename T>
-Root<T>::Root(detail::Box<T>* box) : box(box) {
+Root<T>::Root(detail::TBox<T>* box) : box(box) {
 	box->roots += 1;
 }
 
@@ -209,12 +230,12 @@ Root<T>::~Root() {
 
 template<typename T>
 T& Root<T>::operator*() const noexcept {
-	return *box->value;
+	return *reinterpret_cast<T*>(box->value);
 }
 
 template<typename T>
 T* Root<T>::operator->() const noexcept {
-	return box->value;
+	return reinterpret_cast<T*>(box->value);
 }
 
 template<typename T>
@@ -222,34 +243,22 @@ Ptr<T> Root<T>::unrooted() {
 	return Ptr(box);
 }
 
-template<typename T>
-void Collector::do_trace(detail::Box<void>* untyped, Tracer& t) {
-	static_assert(Traceable<T>::enabled);
-	auto typed = (detail::Box<T>*)untyped;
-	Traceable<T>::trace(*typed->value, t);
-}
-
-template<typename T>
-void Collector::do_free(detail::Box<void>* untyped) {
-	auto typed = (detail::Box<T>*)untyped;
-	delete typed->value;
-}
-
 template<typename T, typename... Args>
 Ptr<T> Collector::alloc(Args&&... args) {
+	static_assert(Traceable<T>::enabled,
+			"Objects managed by the gc need to implement Traceable");
 	if (allocations >= treshold) {
 		collect();
 		treshold = std::max(allocations * 2, size_t(128));
 	}
-	auto box = new detail::Box<T>();
+	auto box = new detail::TBox<T>();
+	box->valid = true;
 	box->marked = false;
 	box->roots = 0;
 	box->ptrs = 0;
-	box->trace = do_trace<T>;
-	box->free = do_free<T>;
 	box->next = box_head;
-	box->value = new T(std::forward<Args>(args)...);
-	box_head = (detail::Box<void>*)box;
+	new(box->value) T(std::forward<Args>(args)...);
+	box_head = box;
 	allocations += 1;
 	return Ptr(box);
 }
