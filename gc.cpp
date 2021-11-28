@@ -44,6 +44,7 @@ void Collector::collect() {
 	});
 	for (auto box = box_head; box != nullptr; box = box->next) {
 		if (box->roots > 0) {
+			box->marked = true;
 			queue.push_back(box);
 		}
 	}
