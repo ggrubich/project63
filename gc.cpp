@@ -6,31 +6,61 @@ Tracer::Tracer(std::function<void(detail::Box*)> callback)
 	: callback(callback)
 {}
 
+namespace detail {
+
+RootBase::RootBase(RootBase** head) {
+	attach(head);
+}
+
+RootBase::~RootBase() {
+	detach();
+}
+
+RootBase::RootBase(const RootBase& other) : RootBase(other.head) {}
+
+RootBase& RootBase::operator=(const RootBase& other) {
+	// If both roots belong to the same linked list we don't need
+	// to do anything as order of nodes doesn't matter.
+	if (head != other.head) {
+		detach();
+		attach(other.head);
+	}
+	return *this;
+}
+
+void RootBase::attach(RootBase** head) {
+	this->head = head;
+	prev = nullptr;
+	next = *head;
+	if (next) {
+		next->prev = this;
+	}
+	*head = this;
+}
+
+void RootBase::detach() {
+	if (prev) {
+		prev->next = next;
+	}
+	else {
+		*head = next;
+	}
+	if (next) {
+		next->prev = prev;
+	}
+}
+
+}  // namespace detail
+
 Collector::Collector()
 	: box_head(nullptr)
+	, root_head(nullptr)
 	, allocations(0)
 	, treshold(128)
 {}
 
 Collector::~Collector() {
 	collect();
-}
-
-Collector::Collector(Collector&& other)
-	: Collector()
-{
-	swap(*this, other);
-}
-
-Collector& Collector::operator=(Collector other) {
-	swap(*this, other);
-	return *this;
-}
-
-void swap(Collector& a, Collector& b) {
-	std::swap(a.box_head, b.box_head);
-	std::swap(a.allocations, b.allocations);
-	std::swap(a.treshold, b.treshold);
 }
 
 void Collector::collect() {
@@ -42,11 +72,8 @@ void Collector::collect() {
 			queue.push_back(box);
 		}
 	});
-	for (auto box = box_head; box != nullptr; box = box->next) {
-		if (box->roots > 0) {
-			box->marked = true;
-			queue.push_back(box);
-		}
+	for (auto root = root_head; root != nullptr; root = root->next) {
+		root->trace(tracer);
 	}
 	while (!queue.empty()) {
 		auto box = queue.back();

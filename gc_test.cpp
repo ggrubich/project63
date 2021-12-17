@@ -157,7 +157,7 @@ TEST(GcTest, PtrValidity) {
 	ptr = gc.alloc<Node>();
 	EXPECT_TRUE(ptr.valid()) << "freshly allocated ptr should be valid";
 	{
-		auto root = ptr.rooted();
+		auto root = gc.root(ptr);
 		gc.collect();
 		EXPECT_TRUE(ptr.valid()) << "rooted ptr after gc should be valid";
 	}

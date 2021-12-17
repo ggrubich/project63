@@ -5,10 +5,10 @@
 #include <cstring>
 #include <functional>
 #include <stdexcept>
+#include <utility>
 
 class Tracer;
 template<typename T> class Ptr;
-template<typename T> class Root;
 
 namespace detail {
 
@@ -18,8 +18,6 @@ struct Box {
 	bool valid;
 	// Switches to true after being visited in the mark phase.
 	bool marked;
-	// Number of existing roots.
-	uint64_t roots;
 	// Number of existing weak pointers.
 	uint64_t ptrs;
 	// Linked list of all boxes.
@@ -76,7 +74,7 @@ struct Traceable {
 template<typename T>
 class Ptr {
 	friend class Tracer;
-	template<typename U> friend class Root;
+	friend class Collector;
 
 private:
 	detail::TBox<T>* box;
@@ -93,47 +91,99 @@ public:
 	// Checks if the pointer is valid.
 	bool valid() const;
 
-	// Attempts to root the pointer. Rooting an invalid pointer throws an exception.
-	Root<T> rooted() const;
-	operator Root<T>() const;
+	// Accesses the contained data.
+	T& operator*() const;
+	T* operator->() const;
 };
 
-// RAII guard representing a rooted pointer. Existence of a root guarantees
-// that the underlying pointer and pointers reachable from it via tracing
-// will not be invalidated for the duration of root's lifetime.
+namespace detail {
+
+struct RootBase {
+	RootBase** head;
+	RootBase* prev;
+	RootBase* next;
+
+	explicit RootBase(RootBase** head);
+	~RootBase();
+	RootBase(const RootBase&);
+	RootBase& operator=(const RootBase&);
+
+	void attach(RootBase** head);
+	void detach();
+
+	virtual void trace(Tracer&) = 0;
+};
+
+}  // namespace detail
+
+// RAII guard representing a rooted value. Existence of a root guarantees
+// that pointers reachable from it will not be invalidated for the duration
+// of root's lifetime.
 // Contained data can be accessed by dereferencing the root.
 //
 // Generally, roots should be used on the stack - in local or global variables.
-// An object managed by gc should not contain references to roots - use Ptr for
-// those instead. In particular, one should avoid creating root cycles, as those
-// can cause memory leaks.
-template<typename T>
-class Root {
-	template<typename U> friend class Ptr;
+// An object managed by gc should not contain references to roots. In particular,
+// one should avoid creating root cycles, as those can cause memory leaks.
+template<typename T, bool Final = true>
+class Root : protected detail::RootBase {
 	friend class Collector;
+	template<typename, bool> friend class Root;
 
-private:
-	detail::TBox<T>* box;
+protected:
+	template<typename... Args>
+	explicit Root(detail::RootBase** head ,Args&&... args);
 
-	explicit Root(detail::TBox<T>* box);
+	void trace(Tracer& t) override;
 
 public:
-	~Root();
-	Root(const Root<T>&);
-	Root& operator=(Root<T>);
+	// The rooted value itself.
+	T value;
 
-	T& operator*() const noexcept;
-	T* operator->() const noexcept;
+	// Converting constructors from other roots.
+	template<typename U>
+	Root(const Root<U>&);
+	template<typename U>
+	Root(Root<U>&&);
 
-	// Returns un unrooted version of the pointer.
-	Ptr<T> unrooted() const;
-	operator Ptr<T>() const;
+	// Value assignemnt.
+	Root<T>& operator=(const T&);
+	Root<T>& operator=(T&&);
+
+	// Implicit conversions to the contained type.
+	operator T&() & noexcept;
+	operator const T&() const& noexcept;
+	operator T&&() && noexcept;
+	operator const T&&() const&& noexcept;
+
+	// Pointer-like operations on the contained value.
+	T& operator*() & noexcept;
+	const T& operator*() const& noexcept;
+	T&& operator*() && noexcept;
+	const T&& operator*() const&& noexcept;
+	T* operator->() noexcept;
+	const T* operator->() const noexcept;
+};
+
+// Specialization of Root for pointers, mainly for a more convenient interface.
+template<typename T>
+class Root<Ptr<T>> : public Root<Ptr<T>, false> {
+private:
+	using Base = Root<Ptr<T>, false>;
+	using Base::Root;
+
+public:
+	using Base::value;
+	using Base::operator=;
+
+	T& operator*() const;
+	T* operator->() const;
 };
 
 // The garbage collector object.
 class Collector {
 private:
 	detail::Box* box_head;
+	detail::RootBase* root_head;
 	size_t allocations;
 	size_t treshold;
 
@@ -141,15 +191,19 @@ public:
 	Collector();
 	~Collector();
 
-	Collector(const Collector&) = delete;
-	Collector(Collector&&);
-	Collector& operator=(Collector);
-
-	friend void swap(Collector&, Collector&);
+	Collector(Collector&&) = delete;
+	Collector& operator=(Collector&&) = delete;
 
 	// Allocates a new gc managed pointer.
 	template<typename T, typename... Args>
-	Root<T> alloc(Args&&... args);
+	Root<Ptr<T>> alloc(Args&&... args);
+
+	// Roots a value.
+	template<typename T>
+	Root<std::decay_t<T>> root(T&& value);
+
+	template<typename T, typename... Args>
+	Root<T> root(std::in_place_t, Args&&... args);
 
 	// Triggers a gc cycle.
 	void collect();
@@ -214,59 +268,83 @@ bool Ptr<T>::valid() const {
 }
 
 template<typename T>
-Root<T> Ptr<T>::rooted() const {
+T& Ptr<T>::operator*() const {
 	if (!valid()) {
 		throw std::runtime_error("can't root invalid Ptr");
 	}
-	return Root(box);
-}
-
-template<typename T>
-Ptr<T>::operator Root<T>() const {
-	return rooted();
-}
-
-template<typename T>
-Root<T>::Root(detail::TBox<T>* box) : box(box) {
-	box->roots += 1;
-}
-
-template<typename T>
-Root<T>::~Root() {
-	box->roots -= 1;
-}
-
-template<typename T>
-Root<T>::Root(const Root<T>& root) : Root(root.box) {}
-
-template<typename T>
-Root<T>& Root<T>::operator=(Root<T> root) {
-	std::swap(box, root.box);
-	return *this;
-}
-
-template<typename T>
-T& Root<T>::operator*() const noexcept {
 	return *reinterpret_cast<T*>(box->value);
 }
 
 template<typename T>
-T* Root<T>::operator->() const noexcept {
-	return reinterpret_cast<T*>(box->value);
+T* Ptr<T>::operator->() const {
+	return &**this;
 }
 
-template<typename T>
-Ptr<T> Root<T>::unrooted() const {
-	return Ptr(box);
+template<typename T, bool F>
+template<typename... Args>
+Root<T, F>::Root(detail::RootBase** head, Args&&... args)
+	: detail::RootBase(head)
+	, value(std::forward<Args>(args)...)
+{}
+
+template<typename T, bool F>
+void Root<T, F>::trace(Tracer& t) {
+	Traceable<T>::trace(value, t);
 }
 
-template<typename T>
-Root<T>::operator Ptr<T>() const {
-	return unrooted();
+template<typename T, bool F>
+template<typename U>
+Root<T, F>::Root(const Root<U>& other)
+	: Root(other.head, other.value)
+{}
+
+template<typename T, bool F>
+template<typename U>
+Root<T, F>::Root(Root<U>&& other)
+	: Root(other.head, std::move(other.value))
+{}
+
+template<typename T, bool F>
+Root<T>& Root<T, F>::operator=(const T& x) {
+	value = x;
+	return *static_cast<Root<T>*>(this);
 }
+
+template<typename T, bool F>
+Root<T>& Root<T, F>::operator=(T&& x) {
+	value = std::move(x);
+	return *static_cast<Root<T>*>(this);
+}
+
+template<typename T, bool F>
+Root<T, F>::operator T&() & noexcept { return value; }
+template<typename T, bool F>
+Root<T, F>::operator const T&() const& noexcept { return value; }
+template<typename T, bool F>
+Root<T, F>::operator T&&() && noexcept { return std::move(value); }
+template<typename T, bool F>
+Root<T, F>::operator const T&&() const&& noexcept { return std::move(value); }
+
+template<typename T, bool F>
+T& Root<T, F>::operator*() & noexcept { return value; }
+template<typename T, bool F>
+const T& Root<T, F>::operator*() const& noexcept { return value; }
+template<typename T, bool F>
+T&& Root<T, F>::operator*() && noexcept { return std::move(value); }
+template<typename T, bool F>
+const T&& Root<T, F>::operator*() const&& noexcept { return std::move(value); }
+template<typename T, bool F>
+T* Root<T, F>::operator->() noexcept { return &value; }
+template<typename T, bool F>
+const T* Root<T, F>::operator->() const noexcept { return &value; }
+
+template<typename T>
+T& Root<Ptr<T>>::operator*() const { return *value; }
+template<typename T>
+T* Root<Ptr<T>>::operator->() const { return value.operator->(); }
 
 template<typename T, typename... Args>
-Root<T> Collector::alloc(Args&&... args) {
+Root<Ptr<T>> Collector::alloc(Args&&... args) {
 	static_assert(Traceable<T>::enabled,
 			"Objects managed by the gc need to implement Traceable");
 	if (allocations >= treshold) {
@@ -276,11 +354,33 @@ Root<T> Collector::alloc(Args&&... args) {
 	auto box = new detail::TBox<T>();
 	box->valid = true;
 	box->marked = false;
-	box->roots = 0;
 	box->ptrs = 0;
 	box->next = box_head;
 	new(box->value) T(std::forward<Args>(args)...);
 	box_head = box;
 	allocations += 1;
-	return Root(box);
+	return root(Ptr(box));
 }
+
+template<typename T>
+Root<std::decay_t<T>> Collector::root(T&& value) {
+	return root<std::decay_t<T>>(std::in_place, std::forward<T>(value));
+}
+
+template<typename T, typename... Args>
+Root<T> Collector::root(std::in_place_t, Args&&... args) {
+	static_assert(Traceable<T>::enabled,
+			"Rooted objects need to implement Traceable");
+	return Root<T>(&root_head, std::forward<Args>(args)...);
+}
+
+// Traceable implementations for builtin types.
+
+template<typename T>
+struct Traceable<Ptr<T>> {
+	static const bool enabled = true;
+
+	static void trace(const Ptr<T>& ptr, Tracer& t) {
+		t.visit(ptr);
+	}
+};
