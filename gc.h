@@ -92,6 +92,7 @@ public:
 	bool valid() const;
 
 	// Accesses the contained data.
+	T& get() const;
 	T& operator*() const;
 	T* operator->() const;
 };
@@ -124,20 +125,20 @@ struct RootBase {
 // Generally, roots should be used on the stack - in local or global variables.
 // An object managed by gc should not contain references to roots. In particular,
 // one should avoid creating root cycles, as those can cause memory leaks.
-template<typename T, bool Final = true>
-class Root : protected detail::RootBase {
+template<typename T>
+class Root : private detail::RootBase {
 	friend class Collector;
-	template<typename, bool> friend class Root;
+	template<typename> friend class Root;
 
-protected:
+private:
 	template<typename... Args>
-	explicit Root(detail::RootBase** head ,Args&&... args);
+	explicit Root(detail::RootBase** head, Args&&... args);
 
 	void trace(Tracer& t) override;
 
 public:
 	// The rooted value itself.
-	T value;
+	T inner;
 
 	// Converting constructors from other roots.
 	template<typename U>
@@ -149,34 +150,14 @@ public:
 	Root<T>& operator=(const T&);
 	Root<T>& operator=(T&&);
 
-	// Implicit conversions to the contained type.
-	operator T&() & noexcept;
-	operator const T&() const& noexcept;
-	operator T&&() && noexcept;
-	operator const T&&() const&& noexcept;
-
 	// Pointer-like operations on the contained value.
-	T& operator*() & noexcept;
 	const T& operator*() const& noexcept;
+	T& operator*() & noexcept;
+	const T&& operator*() const && noexcept;
 	T&& operator*() && noexcept;
-	const T&& operator*() const&& noexcept;
-	T* operator->() noexcept;
+
 	const T* operator->() const noexcept;
-};
-
-// Specialization of Root for pointers, mainly for a more convenient interface.
-template<typename T>
-class Root<Ptr<T>> : public Root<Ptr<T>, false> {
-private:
-	using Base = Root<Ptr<T>, false>;
-	using Base::Root;
-
-public:
-	using Base::value;
-	using Base::operator=;
-
-	T& operator*() const;
-	T* operator->() const;
+	T* operator->() noexcept;
 };
 
 // The garbage collector object.
@@ -268,7 +249,7 @@ bool Ptr<T>::valid() const {
 }
 
 template<typename T>
-T& Ptr<T>::operator*() const {
+T& Ptr<T>::get() const {
 	if (!valid()) {
 		throw std::runtime_error("can't root invalid Ptr");
 	}
@@ -276,72 +257,58 @@ T& Ptr<T>::operator*() const {
 }
 
 template<typename T>
+T& Ptr<T>::operator*() const {
+	return get();
+}
+
+template<typename T>
 T* Ptr<T>::operator->() const {
-	return &**this;
+	return &get();
 }
 
-template<typename T, bool F>
+template<typename T>
 template<typename... Args>
-Root<T, F>::Root(detail::RootBase** head, Args&&... args)
+Root<T>::Root(detail::RootBase** head, Args&&... args)
 	: detail::RootBase(head)
-	, value(std::forward<Args>(args)...)
+	, inner(std::forward<Args>(args)...)
 {}
-
-template<typename T, bool F>
-void Root<T, F>::trace(Tracer& t) {
-	Traceable<T>::trace(value, t);
-}
-
-template<typename T, bool F>
-template<typename U>
-Root<T, F>::Root(const Root<U>& other)
-	: Root(other.head, other.value)
-{}
-
-template<typename T, bool F>
-template<typename U>
-Root<T, F>::Root(Root<U>&& other)
-	: Root(other.head, std::move(other.value))
-{}
-
-template<typename T, bool F>
-Root<T>& Root<T, F>::operator=(const T& x) {
-	value = x;
-	return *static_cast<Root<T>*>(this);
-}
-
-template<typename T, bool F>
-Root<T>& Root<T, F>::operator=(T&& x) {
-	value = std::move(x);
-	return *static_cast<Root<T>*>(this);
-}
-
-template<typename T, bool F>
-Root<T, F>::operator T&() & noexcept { return value; }
-template<typename T, bool F>
-Root<T, F>::operator const T&() const& noexcept { return value; }
-template<typename T, bool F>
-Root<T, F>::operator T&&() && noexcept { return std::move(value); }
-template<typename T, bool F>
-Root<T, F>::operator const T&&() const&& noexcept { return std::move(value); }
-
-template<typename T, bool F>
-T& Root<T, F>::operator*() & noexcept { return value; }
-template<typename T, bool F>
-const T& Root<T, F>::operator*() const& noexcept { return value; }
-template<typename T, bool F>
-T&& Root<T, F>::operator*() && noexcept { return std::move(value); }
-template<typename T, bool F>
-const T&& Root<T, F>::operator*() const&& noexcept { return std::move(value); }
-template<typename T, bool F>
-T* Root<T, F>::operator->() noexcept { return &value; }
-template<typename T, bool F>
-const T* Root<T, F>::operator->() const noexcept { return &value; }
 
 template<typename T>
-T& Root<Ptr<T>>::operator*() const { return *value; }
+void Root<T>::trace(Tracer& t) {
+	Traceable<T>::trace(inner, t);
+}
+
 template<typename T>
-T* Root<Ptr<T>>::operator->() const { return value.operator->(); }
+template<typename U>
+Root<T>::Root(const Root<U>& other)
+	: Root(other.head, other.inner)
+{}
+
+template<typename T>
+template<typename U>
+Root<T>::Root(Root<U>&& other)
+	: Root(other.head, std::move(other.inner))
+{}
+
+template<typename T>
+Root<T>& Root<T>::operator=(const T& x) {
+	inner = x;
+	return *this;
+}
+
+template<typename T>
+Root<T>& Root<T>::operator=(T&& x) {
+	inner = std::move(x);
+	return *this;
+}
+
+template<typename T> const T& Root<T>::operator*() const& noexcept { return inner; }
+template<typename T> T& Root<T>::operator*() & noexcept { return inner; }
+template<typename T> const T&& Root<T>::operator*() const&& noexcept { return std::move(inner); }
+template<typename T> T&& Root<T>::operator*() && noexcept { return std::move(inner); }
+
+template<typename T> const T* Root<T>::operator->() const noexcept { return &inner; }
+template<typename T> T* Root<T>::operator->() noexcept { return &inner; }
 
 template<typename T, typename... Args>
 Root<Ptr<T>> Collector::alloc(Args&&... args) {

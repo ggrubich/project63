@@ -88,7 +88,7 @@ TEST(GcTest, LinkedList) {
 		auto head = gc.alloc<Node>(count);
 		for (size_t i = 0; i < 5; ++i) {
 			auto new_head = gc.alloc<Node>(count);
-			new_head->add(head);
+			(*new_head)->add(*head);
 			head = new_head;
 		}
 		gc.collect();
@@ -106,11 +106,11 @@ TEST(GcTest, Cycle) {
 		{
 			auto n2 = gc.alloc<Node>(count);
 			auto n3 = gc.alloc<Node>(count);
-			n1->add(n2);
-			n2->add(n3);
-			n3->add(n1);
+			(*n1)->add(*n2);
+			(*n2)->add(*n3);
+			(*n3)->add(*n1);
 			auto n4 = gc.alloc<Node>(count);
-			n3->add(n4);
+			(*n3)->add(*n4);
 		}
 		gc.collect();
 		EXPECT_EQ(count.get(), 4) << "cycle should be alive";
@@ -128,21 +128,21 @@ TEST(GcTest, Tree) {
 			auto n1 = root;
 			auto n11 = gc.alloc<Node>(count);
 			auto n12 = gc.alloc<Node>(count);
-			n1->add(n11);
-			n1->add(n12);
+			(*n1)->add(*n11);
+			(*n1)->add(*n12);
 			auto n121 = gc.alloc<Node>(count);
 			auto n122 = gc.alloc<Node>(count);
 			auto n123 = gc.alloc<Node>(count);
-			n12->add(n121);
-			n12->add(n122);
-			n12->add(n123);
+			(*n12)->add(*n121);
+			(*n12)->add(*n122);
+			(*n12)->add(*n123);
 		}
 		gc.collect();  // root is n1
 		EXPECT_EQ(count.get(), 6) << "entire tree should be alive";
-		root = (*root)[1];
+		root = (**root)[1];
 		gc.collect();  // root is n12
 		EXPECT_EQ(count.get(), 4) << "part of the tree should be alive";
-		root = (*root)[2];
+		root = (**root)[2];
 		gc.collect();  // root is n123
 		EXPECT_EQ(count.get(), 1) << "part of the tree should be alive";
 	}
@@ -154,7 +154,7 @@ TEST(GcTest, PtrValidity) {
 	Collector gc;
 	Ptr<Node> ptr;
 	EXPECT_FALSE(ptr.valid()) << "empty ptr should be invaild";
-	ptr = gc.alloc<Node>();
+	ptr = *gc.alloc<Node>();
 	EXPECT_TRUE(ptr.valid()) << "freshly allocated ptr should be valid";
 	{
 		auto root = gc.root(ptr);
