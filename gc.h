@@ -351,3 +351,23 @@ struct Traceable<Ptr<T>> {
 		t.visit(ptr);
 	}
 };
+
+template<>
+struct Traceable<std::string> {
+	static const bool enabled = true;
+
+	static void trace(const std::string&, Tracer&) {}
+};
+
+template<typename T>
+struct Traceable<std::vector<T>> {
+	static_assert(Traceable<T>::enabled, "vector elements must implement Traceable");
+
+	static const bool enabled = true;
+
+	static void trace(const std::vector<T>& xs, Tracer& t) {
+		for (const auto& x : xs) {
+			Traceable<T>::trace(x, t);
+		}
+	}
+};
