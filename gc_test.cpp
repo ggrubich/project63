@@ -164,3 +164,38 @@ TEST(GcTest, PtrValidity) {
 	gc.collect();
 	EXPECT_FALSE(ptr.valid()) << "deallocated ptr should be invalid";
 }
+
+struct Base {
+	virtual ~Base() = default;
+};
+
+struct Left : Base {};
+
+struct Right : Base {};
+
+struct DerivedA : Left, Right {};
+
+template<>
+struct Traceable<DerivedA> {
+	static const bool enabled = true;
+
+	static void trace(const DerivedA&, Tracer&) {}
+};
+
+struct DerivedB : Base {};
+
+TEST(GcTest, PtrCasts) {
+	Collector gc;
+	auto derived = *gc.alloc<DerivedA>();
+	Ptr<Base> base = Ptr<Left>(derived);  // correct upcast
+	EXPECT_THROW({
+		Ptr<Right> right = derived;
+	}, std::bad_cast) << "upcasting to second base class should throw";
+	EXPECT_TRUE(bool(base.dyncast<DerivedA>())) <<
+		"downcasting to actual type should succeed";
+	EXPECT_FALSE(bool(base.dyncast<DerivedB>())) <<
+		"downcasting to other derived type should fail";
+	EXPECT_FALSE(bool(base.dyncast<Right>())) <<
+		"downcasting to second base should fail";
+	Ptr<Right> unchecked = Ptr<void>(Ptr<void>(derived)).cast<Right>();  // unchecked cast
+}

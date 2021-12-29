@@ -4,56 +4,26 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
-class Tracer;
-template<typename T> class Ptr;
-
-namespace detail {
-
-// Base class for internal nodes used by the garbage collector.
-struct Box {
-	// True if contanied value was not destroyed yet.
-	bool valid;
-	// Switches to true after being visited in the mark phase.
-	bool marked;
-	// Number of existing weak pointers.
-	uint64_t ptrs;
-	// Linked list of all boxes.
-	Box* next;
-
-	virtual ~Box() = default;
-	// Calls Traceable::trace on the contained value.
-	virtual void trace(Tracer&) = 0;
-	// Calls the destructor on the contained value.
-	virtual void destroy() = 0;
-};
-
-// Box implementation for a specific type.
-template<typename T>
-struct TBox : public Box {
-	// Contained value managed by the gc.
-	alignas(T) uint8_t value[sizeof(T)];
-
-	void trace(Tracer& t) override;
-	void destroy() override;
-};
-
-}  // namespace detail
+namespace detail { class BoxBase; }
+template<typename> class Ptr;
 
 // Visitor used for tracing objects.
 class Tracer {
 	friend class Collector;
 
 private:
-	std::function<void(detail::Box*)> callback;
+	std::function<void(detail::BoxBase*)> callback;
 
-	explicit Tracer(std::function<void(detail::Box*)>);
+	explicit Tracer(std::function<void(detail::BoxBase*)>);
 
 public:
 	template<typename T>
-	void visit(Ptr<T> ptr);
+	void visit(const Ptr<T>& ptr);
 };
 
 // Trait defining the tracing function. All types used with the gc must implement it.
@@ -66,20 +36,58 @@ struct Traceable {
 	static void trace(const T&, Tracer&) = delete;
 };
 
+namespace detail {
+
+// Base class for internal nodes used by the garbage collector.
+struct BoxBase {
+	// True if contanied value was not destroyed yet.
+	bool valid;
+	// Switches to true after being visited in the mark phase.
+	bool marked;
+	// Byte offset betweet start of the struct and the contained value.
+	uint8_t offset;
+	// Number of existing weak pointers.
+	uint64_t ptrs;
+	// Linked list of all boxes.
+	BoxBase* next;
+
+	BoxBase(uint8_t offset, BoxBase* next);
+	virtual ~BoxBase() = default;
+
+	// Calls Traceable::trace on the contained value.
+	virtual void trace(Tracer&) = 0;
+	// Calls the destructor on the contained value.
+	virtual void destroy() = 0;
+};
+
+// Box implementation for a specific type.
+template<typename T>
+struct Box : public BoxBase {
+	// Contained value managed by the gc.
+	alignas(T) uint8_t value[sizeof(T)];
+
+	template<typename... Args>
+	Box(BoxBase* next, Args&&... args);
+
+	void trace(Tracer& t) override;
+	void destroy() override;
+};
+
+}  // namespace detail
+
 // Pointer managed by the gc. This is a *weak* pointer - triggering a gc cycle
 // can invalidate it at any time. To prevent that from happening, currently used
-// pointers must be rooted (see class Root). For this reason Ptr does not
-// implement any methods for accessing the contained data - that must be done
-// through a Root.
+// pointers must be rooted (see class Root).
 template<typename T>
 class Ptr {
+	template<typename> friend class Ptr;
 	friend class Tracer;
 	friend class Collector;
 
 private:
-	detail::TBox<T>* box;
+	detail::BoxBase* box;
 
-	explicit Ptr(detail::TBox<T>* box);
+	explicit Ptr(detail::BoxBase* box);
 
 public:
 	Ptr();
@@ -88,12 +96,32 @@ public:
 	Ptr(Ptr<T>&&);
 	Ptr& operator=(Ptr<T>);
 
+	// Implicit pointer conversion.
+	// For implementation reasons, conversions that would change pointer's
+	// address will throw a std::bad_cast (that can happen when casting a class
+	// to its non-first base class).
+	template<typename U, typename = std::enable_if_t<std::is_convertible_v<U*, T*>>>
+	Ptr(const Ptr<U>&);
+
+	// Performs a pointer cast without any checks. This can be seen as
+	// an equivalent to C-style casts.
+	template<typename U>
+	Ptr<U> cast() const;
+
+	// Performs a pointer cast with runtime checks.
+	// If running dynamic_cast<U*> on the contained pointer would succeed without
+	// changing its address, dyncast returns Ptr<U>, otherwise nullopt is returned.
+	template<typename U>
+	std::optional<Ptr<U>> dyncast() const;
+
 	// Checks if the pointer is valid.
 	bool valid() const;
 
 	// Accesses the contained data.
-	T& get() const;
-	T& operator*() const;
+	// Throws std::runtime_error when trying to access an invalid pointer.
+	T* address() const;
+	std::add_lvalue_reference_t<T> get() const;
+	std::add_lvalue_reference_t<T> operator*() const;
 	T* operator->() const;
 };
 
@@ -163,7 +191,7 @@ public:
 // The garbage collector object.
 class Collector {
 private:
-	detail::Box* box_head;
+	detail::BoxBase* box_head;
 	detail::RootBase* root_head;
 	size_t allocations;
 	size_t treshold;
@@ -192,15 +220,30 @@ public:
 
 // Implementations
 
+template<typename T>
+void Tracer::visit(const Ptr<T>& ptr) {
+	callback(ptr.box);
+}
+
 namespace detail {
 
 template<typename T>
-void TBox<T>::trace(Tracer& t) {
+template<typename... Args>
+Box<T>::Box(BoxBase* next, Args&&... args)
+	: BoxBase(
+			reinterpret_cast<uintptr_t>(value) - reinterpret_cast<uintptr_t>(this),
+			next)
+{
+	new(value) T(std::forward<Args>(args)...);
+}
+
+template<typename T>
+void Box<T>::trace(Tracer& t) {
 	Traceable<T>::trace(*reinterpret_cast<T*>(value), t);
 }
 
 template<typename T>
-void TBox<T>::destroy() {
+void Box<T>::destroy() {
 	reinterpret_cast<T*>(value)->~T();
 	std::memset(value, 0, sizeof(T));
 }
@@ -208,12 +251,7 @@ void TBox<T>::destroy() {
 }  // namespace detail
 
 template<typename T>
-void Tracer::visit(Ptr<T> ptr) {
-	callback(ptr.box);
-}
-
-template<typename T>
-Ptr<T>::Ptr(detail::TBox<T>* box) : box(box) {
+Ptr<T>::Ptr(detail::BoxBase* box) : box(box) {
 	if (box != nullptr) {
 		box->ptrs += 1;
 	}
@@ -244,26 +282,64 @@ Ptr<T>& Ptr<T>::operator=(Ptr<T> ptr) {
 }
 
 template<typename T>
+template<typename U, typename>
+Ptr<T>::Ptr(const Ptr<U>& ptr) : Ptr(ptr.box) {
+	if (valid()) {
+		U* x = ptr.address();
+		T* y = x;
+		if (static_cast<void*>(x) != static_cast<void*>(y)) {
+			throw std::bad_cast();
+		}
+	}
+}
+
+template<typename T>
+template<typename U>
+Ptr<U> Ptr<T>::cast() const {
+	return Ptr<U>(box);
+}
+
+template<typename T>
+template<typename U>
+std::optional<Ptr<U>> Ptr<T>::dyncast() const {
+	T* x = valid() ? address() : nullptr;
+	U* y = dynamic_cast<U*>(x);
+	if (x != nullptr && y == nullptr) {  // dynamic cast failed
+		return std::nullopt;
+	}
+	if (static_cast<void*>(x) != static_cast<void*>(y)) {  // address changed
+		return std::nullopt;
+	}
+	return Ptr<U>(box);
+}
+
+template<typename T>
 bool Ptr<T>::valid() const {
 	return box != nullptr && box->valid;
 }
 
 template<typename T>
-T& Ptr<T>::get() const {
+T* Ptr<T>::address() const {
 	if (!valid()) {
-		throw std::runtime_error("can't root invalid Ptr");
+		throw std::runtime_error("can't access an invalid Ptr");
 	}
-	return *reinterpret_cast<T*>(box->value);
+	uint8_t* p = reinterpret_cast<uint8_t*>(box) + box->offset;
+	return reinterpret_cast<T*>(p);
 }
 
 template<typename T>
-T& Ptr<T>::operator*() const {
+std::add_lvalue_reference_t<T> Ptr<T>::get() const {
+	return *address();
+}
+
+template<typename T>
+std::add_lvalue_reference_t<T> Ptr<T>::operator*() const {
 	return get();
 }
 
 template<typename T>
 T* Ptr<T>::operator->() const {
-	return &get();
+	return address();
 }
 
 template<typename T>
@@ -318,15 +394,10 @@ Root<Ptr<T>> Collector::alloc(Args&&... args) {
 		collect();
 		treshold = std::max(allocations * 2, size_t(128));
 	}
-	auto box = new detail::TBox<T>();
-	box->valid = true;
-	box->marked = false;
-	box->ptrs = 0;
-	box->next = box_head;
-	new(box->value) T(std::forward<Args>(args)...);
+	auto box = new detail::Box<T>(box_head, std::forward<Args>(args)...);
 	box_head = box;
 	allocations += 1;
-	return root(Ptr(box));
+	return root(Ptr<T>(box));
 }
 
 template<typename T>

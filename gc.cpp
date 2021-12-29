@@ -2,11 +2,19 @@
 
 #include <vector>
 
-Tracer::Tracer(std::function<void(detail::Box*)> callback)
+Tracer::Tracer(std::function<void(detail::BoxBase*)> callback)
 	: callback(callback)
 {}
 
 namespace detail {
+
+BoxBase::BoxBase(uint8_t offset, BoxBase* next)
+	: valid(true)
+	, marked(false)
+	, offset(offset)
+	, ptrs(0)
+	, next(next)
+{}
 
 RootBase::RootBase(RootBase** head) {
 	attach(head);
@@ -65,7 +73,7 @@ Collector::~Collector() {
 
 void Collector::collect() {
 	// mark
-	std::vector<detail::Box*> queue;
+	std::vector<detail::BoxBase*> queue;
 	auto tracer = Tracer([&](auto box) {
 		if (!box->marked) {
 			box->marked = true;
