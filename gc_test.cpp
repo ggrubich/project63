@@ -70,14 +70,9 @@ const Ptr<Node>& Node::operator[](size_t idx) const {
 	return edges[idx];
 }
 
-template<>
-struct Traceable<Node> {
-	static const bool enabled = true;
-
-	static void trace(const Node& x, Tracer& t) {
-		for (const auto& y : x.edges) {
-			t.visit(y);
-		}
+template<> struct Trace<Node> {
+	void operator()(const Node& x, Tracer& t) {
+		Trace<std::vector<Ptr<Node>>>()(x.edges, t);
 	}
 };
 
@@ -187,11 +182,8 @@ struct Right : Base {};
 
 struct DerivedA : Left, Right {};
 
-template<>
-struct Traceable<DerivedA> {
-	static const bool enabled = true;
-
-	static void trace(const DerivedA&, Tracer&) {}
+template<> struct Trace<DerivedA> {
+	void operator()(const DerivedA&, Tracer&) {}
 };
 
 struct DerivedB : Base {};

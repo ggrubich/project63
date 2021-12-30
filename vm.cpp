@@ -15,13 +15,12 @@ VM::VM(Collector& gc) : gc(gc) {}
 
 void VM::trace(Tracer& t) const {
 	for (const auto& x : data_stack) {
-		Traceable<Value>::trace(x.value, t);
-		if (x.upvalue) {
-			t.visit(*x.upvalue);
-		}
+		Trace<Value>{}(x.value, t);
+		Trace<decltype(x.upvalue)>{}(x.upvalue, t);
+
 	}
 	for (const auto& x : call_stack) {
-		t.visit(x.func);
+		t(x.func);
 	}
 }
 

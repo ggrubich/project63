@@ -8,33 +8,34 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace detail { class BoxBase; }
 template<typename> class Ptr;
 
 // Visitor used for tracing objects.
-class Tracer {
-	friend class Collector;
+using Tracer = std::function<void(const Ptr<const void>&)>;
 
-private:
-	std::function<void(detail::BoxBase*)> callback;
-
-	explicit Tracer(std::function<void(detail::BoxBase*)>);
-
-public:
-	template<typename T>
-	void visit(const Ptr<T>& ptr);
-};
-
-// Trait defining the tracing function. All types used with the gc must implement it.
+// Trait defining the tracing function, required for allocating and rooting
+// objects with the GC.
+// Type T implements Trace when specialization Trace<T> is an object with
+// a default constructor and an operator() with a matching signature.
+// Formally, those requirements are described by is_traceable_v predicate.
 template<typename T>
-struct Traceable {
-	// Must be set to true for all specializations.
-	static const bool enabled = false;
-
-	// Visits all accesible Ptr<T> values with supplied tracer.
-	static void trace(const T&, Tracer&) = delete;
+struct Trace {
+	// Visits all directly accesible Ptr<T> values with the supplied tracer.
+	void operator()(const T&, Tracer&) = delete;
 };
+
+// Checks if type T implements Trace.
+template<typename T>
+constexpr bool is_traceable_v =
+	std::is_default_constructible_v<Trace<T>> &&
+	std::is_invocable_v<Trace<T>, const T&, Tracer&>;
+
+template<typename T>
+using is_traceable = std::bool_constant<is_traceable_v<T>>;
 
 namespace detail {
 
@@ -54,7 +55,7 @@ struct BoxBase {
 	BoxBase(uint8_t offset, BoxBase* next);
 	virtual ~BoxBase() = default;
 
-	// Calls Traceable::trace on the contained value.
+	// Calls Trace on the contained value.
 	virtual void trace(Tracer&) = 0;
 	// Calls the destructor on the contained value.
 	virtual void destroy() = 0;
@@ -81,7 +82,6 @@ struct Box : public BoxBase {
 template<typename T>
 class Ptr {
 	template<typename> friend class Ptr;
-	friend class Tracer;
 	friend class Collector;
 
 private:
@@ -220,11 +220,6 @@ public:
 
 // Implementations
 
-template<typename T>
-void Tracer::visit(const Ptr<T>& ptr) {
-	callback(ptr.box);
-}
-
 namespace detail {
 
 template<typename T>
@@ -239,7 +234,7 @@ Box<T>::Box(BoxBase* next, Args&&... args)
 
 template<typename T>
 void Box<T>::trace(Tracer& t) {
-	Traceable<T>::trace(*reinterpret_cast<T*>(value), t);
+	Trace<T>{}(*reinterpret_cast<T*>(value), t);
 }
 
 template<typename T>
@@ -287,7 +282,7 @@ Ptr<T>::Ptr(const Ptr<U>& ptr) : Ptr(ptr.box) {
 	if (valid()) {
 		U* x = ptr.address();
 		T* y = x;
-		if (static_cast<void*>(x) != static_cast<void*>(y)) {
+		if (reinterpret_cast<uintptr_t>(x) != reinterpret_cast<uintptr_t>(y)) {
 			throw std::bad_cast();
 		}
 	}
@@ -304,10 +299,12 @@ template<typename U>
 std::optional<Ptr<U>> Ptr<T>::dyncast() const {
 	T* x = valid() ? address() : nullptr;
 	U* y = dynamic_cast<U*>(x);
-	if (x != nullptr && y == nullptr) {  // dynamic cast failed
+	// dynamic cast failed
+	if (x != nullptr && y == nullptr) {
 		return std::nullopt;
 	}
-	if (static_cast<void*>(x) != static_cast<void*>(y)) {  // address changed
+	// address changed
+	if (reinterpret_cast<uintptr_t>(x) != reinterpret_cast<uintptr_t>(y)) {
 		return std::nullopt;
 	}
 	return Ptr<U>(box);
@@ -351,7 +348,7 @@ Root<T>::Root(detail::RootBase** head, Args&&... args)
 
 template<typename T>
 void Root<T>::trace(Tracer& t) {
-	Traceable<T>::trace(inner, t);
+	Trace<T>{}(inner, t);
 }
 
 template<typename T>
@@ -388,8 +385,8 @@ template<typename T> T* Root<T>::operator->() noexcept { return &inner; }
 
 template<typename T, typename... Args>
 Root<Ptr<T>> Collector::alloc(Args&&... args) {
-	static_assert(Traceable<T>::enabled,
-			"Objects managed by the gc need to implement Traceable");
+	static_assert(is_traceable_v<T>,
+			"Objects managed by the gc need to implement Trace");
 	if (allocations >= treshold) {
 		collect();
 		treshold = std::max(allocations * 2, size_t(128));
@@ -407,38 +404,70 @@ Root<std::decay_t<T>> Collector::root(T&& value) {
 
 template<typename T, typename... Args>
 Root<T> Collector::root(std::in_place_t, Args&&... args) {
-	static_assert(Traceable<T>::enabled,
-			"Rooted objects need to implement Traceable");
+	static_assert(is_traceable_v<T>,
+			"Rooted objects need to implement Trace");
 	return Root<T>(&root_head, std::forward<Args>(args)...);
 }
 
-// Traceable implementations for builtin types.
+// Trace implementations for builtin types.
 
 template<typename T>
-struct Traceable<Ptr<T>> {
-	static const bool enabled = true;
-
-	static void trace(const Ptr<T>& ptr, Tracer& t) {
-		t.visit(ptr);
-	}
+struct Trace<Ptr<T>> {
+	void operator()(const Ptr<T>& x, Tracer& t) { t(x); }
 };
 
-template<>
-struct Traceable<std::string> {
-	static const bool enabled = true;
+#define X(T) \
+	template<> struct Trace<T> { \
+		void operator()(const T&, Tracer&) {} \
+	};
 
-	static void trace(const std::string&, Tracer&) {}
-};
+X(bool) X(char)
+X(uint8_t) X(uint16_t) X(uint32_t) X(uint64_t)
+X(int8_t)  X(int16_t)  X(int32_t)  X(int64_t)
+X(float) X(double) X(long double)
+X(std::string)
+
+#undef X
 
 template<typename T>
-struct Traceable<std::vector<T>> {
-	static_assert(Traceable<T>::enabled, "vector elements must implement Traceable");
-
-	static const bool enabled = true;
-
-	static void trace(const std::vector<T>& xs, Tracer& t) {
+struct Trace<std::vector<T>> {
+	template<typename Q = T, typename = std::enable_if_t<is_traceable_v<Q>>>
+	void operator()(const std::vector<T>& xs, Tracer& t) {
 		for (const auto& x : xs) {
-			Traceable<T>::trace(x, t);
+			Trace<T>{}(x, t);
 		}
 	}
 };
+
+template<typename T>
+struct Trace<std::optional<T>> {
+	template<typename Q = T, typename = std::enable_if_t<is_traceable_v<Q>>>
+	void operator()(const std::optional<T>& x, Tracer& t) {
+		if (x) {
+			Trace<T>{}(*x, t);
+		}
+	}
+};
+
+namespace detail {
+
+template<typename... Ts>
+struct TraceVariant {
+	void operator()(const std::variant<Ts...>& v, Tracer& t) {
+		std::visit([&](const auto& x) {
+			using T = std::decay_t<decltype(x)>;
+			Trace<T>{}(x, t);
+		}, v);
+	}
+};
+
+}  // namespace detail
+
+template<typename... Ts>
+struct Trace<std::variant<Ts...>>
+	: std::conditional_t<
+		std::conjunction_v<is_traceable<Ts>...>,
+		detail::TraceVariant<Ts...>,
+		std::monostate
+	>
+{};

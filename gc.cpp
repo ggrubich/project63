@@ -1,11 +1,5 @@
 #include "gc.h"
 
-#include <vector>
-
-Tracer::Tracer(std::function<void(detail::BoxBase*)> callback)
-	: callback(callback)
-{}
-
 namespace detail {
 
 BoxBase::BoxBase(uint8_t offset, BoxBase* next)
@@ -74,14 +68,13 @@ Collector::~Collector() {
 void Collector::collect() {
 	// mark
 	std::vector<detail::BoxBase*> queue;
-	auto tracer = Tracer([&](auto box) {
-		// ignore invalid pointers
-		if (!box || !box->valid) {
-			return;
-		}
-		if (!box->marked) {
-			box->marked = true;
-			queue.push_back(box);
+	auto tracer = Tracer([&](const auto& ptr) {
+		if (ptr.valid()) {
+			auto box = ptr.box;
+			if (!box->marked) {
+				box->marked = true;
+				queue.push_back(box);
+			}
 		}
 	});
 	for (auto root = root_head; root != nullptr; root = root->next) {

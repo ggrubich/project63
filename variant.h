@@ -1,5 +1,8 @@
 #pragma once
 
+#include "gc.h"
+
+#include <type_traits>
 #include <variant>
 
 // Helper type for writing visitors.
@@ -62,5 +65,16 @@ struct Variant {
 	// Checks if the variant contains the given type T.
 	template<typename T> bool holds() const {
 		return std::holds_alternative<T>(inner);
+	}
+};
+
+template<typename... Ts>
+struct Trace<Variant<Ts...>> {
+	template<
+		typename V = std::variant<Ts...>,
+		typename = std::enable_if_t<is_traceable_v<V>>
+	>
+	void operator()(const Variant<Ts...>& v, Tracer& t) {
+		Trace<V>{}(v.inner, t);
 	}
 };

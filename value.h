@@ -181,54 +181,35 @@ struct CppFunction {
 
 // Implementations
 
-template<>
-struct Traceable<Value> {
-	static const bool enabled = true;
+template<> struct Trace<Nil> {
+	void operator()(const Nil&, Tracer&) {}
+};
 
-	static void trace(const Value& val, Tracer& t) {
-		val.visit(Overloaded {
-			[](Nil) {},
-			[](bool) {},
-			[](int64_t) {},
-			[&](auto other) { t.visit(other); },
-		});
+template<> struct Trace<Value> {
+	void operator()(const Value& x, Tracer& t) {
+		Trace<Value::Variant>{}(x, t);
 	}
 };
 
-template<>
-struct Traceable<Upvalue> {
-	static const bool enabled = true;
-
-	static void trace(const Upvalue& up, Tracer& t) {
-		up.visit(Overloaded {
-			[](uint64_t) {},
-			[&](const Value& v) { Traceable<Value>::trace(v, t); }
-		});
+template<> struct Trace<Upvalue> {
+	void operator()(const Upvalue& x, Tracer& t) {
+		Trace<Upvalue::Variant>{}(x, t);
 	}
 };
 
-template<>
-struct Traceable<FunctionProto> {
-	static const bool enabled = true;
-
-	static void trace(const FunctionProto& proto, Tracer& t) {
-		Traceable<decltype(proto.constants)>::trace(proto.constants, t);
+template<> struct Trace<FunctionProto> {
+	void operator()(const FunctionProto& proto, Tracer& t) {
+		Trace<decltype(proto.constants)>{}(proto.constants, t);
 	}
 };
 
-template<>
-struct Traceable<Function> {
-	static const bool enabled = true;
-
-	static void trace(const Function& f, Tracer& t) {
-		t.visit(f.proto);
-		Traceable<decltype(f.upvalues)>::trace(f.upvalues, t);
+template<> struct Trace<Function> {
+	void operator()(const Function& f, Tracer& t) {
+		t(f.proto);
+		Trace<decltype(f.upvalues)>{}(f.upvalues, t);
 	}
 };
 
-template<>
-struct Traceable<CppFunction> {
-	static const bool enabled = true;
-
-	static void trace(const CppFunction&, Tracer&) {}
+template<> struct Trace<CppFunction> {
+	void operator()(const CppFunction&, Tracer&) {}
 };

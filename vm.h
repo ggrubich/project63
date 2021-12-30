@@ -80,11 +80,8 @@ private:
 	void uncatch();
 };
 
-template<>
-struct Traceable<VM> {
-	static const bool enabled = true;
-
-	static void trace(const VM& vm, Tracer& t) {
-		vm.trace(t);
+template<> struct Trace<VM> {
+	void operator()(const VM& x, Tracer& t) {
+		x.trace(t);
 	}
 };
