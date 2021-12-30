@@ -150,6 +150,18 @@ TEST(GcTest, Tree) {
 	EXPECT_EQ(count.get(), 0) << "tree should be dead";
 }
 
+TEST(GcTest, TraceInvalid) {
+	Collector gc;
+	Ptr<Node> p1;
+	auto p2 = *gc.alloc<Node>();
+	gc.collect();
+	auto r1 = gc.root(p1);
+	auto r2 = gc.root(p2);
+	// p1 and p2 are now invalid and collector accessing them should hopefully
+	// segfault the test.
+	gc.collect();
+}
+
 TEST(GcTest, PtrValidity) {
 	Collector gc;
 	Ptr<Node> ptr;

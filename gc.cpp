@@ -75,6 +75,10 @@ void Collector::collect() {
 	// mark
 	std::vector<detail::BoxBase*> queue;
 	auto tracer = Tracer([&](auto box) {
+		// ignore invalid pointers
+		if (!box || !box->valid) {
+			return;
+		}
 		if (!box->marked) {
 			box->marked = true;
 			queue.push_back(box);
