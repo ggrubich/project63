@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
+#include <unordered_map>
 #include <vector>
 
 // Basic instructions executed by the vm. Each one of them is documented
@@ -75,6 +77,18 @@ enum class Opcode : uint8_t {
 	// Copies an upvalue from the given index and adds it the function.
 	CopyUp,
 
+	// Instance variables (i.e. properties)
+	//
+	// GetProp(), ( obj name -- value )
+	// Retrieves a property with the given name from object obj. Name must
+	// be a string. If the property is not present, an exception is thrown.
+	GetProp,
+	// SetProp(), ( obj name value -- )
+	// Assigns a value as obj's property with the given name. Name must be
+	// a string. Trying to assign to a primitive object (like an int or bool)
+	// will throw an exception.
+	SetProp,
+
 	// Function opcodes
 	//
 	// Call(), ( func x_1 x_2 x_3 ... x_n n -- y )
@@ -84,6 +98,13 @@ enum class Opcode : uint8_t {
 	// After the call, function and arguments on the stack will be replaced with
 	// function's result.
 	Call,
+	// Send(), ( obj msg -- result )
+	// Sends the given message to the object. Sending will perform a method lookup
+	// in obj's class and call the found value with obj as a self argument.
+	// If the requested method is not present but obj has a "not_understood" method,
+	// send will call not_understood with obj as self argument and then its result
+	// with msg as an argument. Otherwise, an exception will be thrown.
+	Send,
 
 	// Flow control
 	//
@@ -134,6 +155,14 @@ struct Function;
 
 struct CppFunction;
 
+struct Object;
+
+struct CppObject;
+
+struct Klass;
+
+struct Context;
+
 // Union of all possible value types.
 struct Value : Variant<
 	Nil,
@@ -141,11 +170,31 @@ struct Value : Variant<
 	int64_t,
 	Ptr<std::string>,
 	Ptr<Function>,
-	Ptr<CppFunction>
+	Ptr<CppFunction>,
+	Ptr<Object>,
+	Ptr<CppObject>,
+	Ptr<Klass>
 > {
 	using Variant::Variant;
 
 	Value();
+
+	Ptr<Klass> class_of(Context&) const;
+};
+
+// A shared global context.
+struct Context : public Collector {
+	Root<Context*> this_root;
+
+	Ptr<Klass> object_cls;
+	Ptr<Klass> class_cls;
+	Ptr<Klass> nil_cls;
+	Ptr<Klass> bool_cls;
+	Ptr<Klass> int_cls;
+	Ptr<Klass> string_cls;
+	Ptr<Klass> function_cls;
+
+	Context();
 };
 
 // Upvalue is either an absolute index in the data stack (open upvalue)
@@ -171,12 +220,70 @@ struct Function {
 
 // Foreign function implemented in C++.
 struct CppFunction {
-	using Inner = std::function<Root<Value>(Collector&, const std::vector<Value>&)>;
+	using Inner = std::function<Root<Value>(Context&, const std::vector<Value>&)>;
 
 	uint64_t nargs;
 	Inner inner;
 
 	CppFunction(uint64_t nargs, Inner inner);
+};
+
+// A native compound object.
+// While all values are considered objects, this particular class name refers
+// to dictionary-like objects creatable in external code.
+struct Object {
+	std::unordered_map<std::string, Value> properties;
+	Ptr<Klass> klass;
+
+	explicit Object(const Ptr<Klass>&);
+
+	// Getter and setter for object properties.
+	std::optional<Value> get_prop(const std::string& name) const;
+	void set_prop(const std::string& name, const Value& value);
+};
+
+// Base class for foreign C++ objects.
+struct CppObject {
+	Ptr<Klass> klass;
+
+	explicit CppObject(const Ptr<Klass>&);
+	virtual ~CppObject() = default;
+};
+
+namespace detail {
+
+struct MethodEntry {
+	Value value;
+	// True if entry is owned by the class, false if it's cached.
+	bool own;
+	// Detonator for invalidating caches.
+	Ptr<bool> valid;
+};
+
+}  // namespace detail
+
+// A class. We spell it with k to avoid conflicting with C++ keyword.
+// Klass contains all members of Object along with a map of methods and
+// a superclass chain.
+struct Klass : Object {
+	std::unordered_map<std::string, detail::MethodEntry> methods;
+	std::optional<Ptr<Klass>> base;
+
+	// Creates a class from raw parts.
+	explicit Klass(const Ptr<Klass>& klass, const std::optional<Ptr<Klass>>& base);
+	// Creates a class inherited from base.
+	explicit Klass(Context& ctx, const Ptr<Klass>& base);
+
+	// Finds a method in the class chain.
+	std::optional<Value> lookup(const std::string& name);
+	// Removes a method from the class and returns it.
+	std::optional<Value> remove(const std::string& name);
+	// Creates a new method or overwrites an existing one.
+	void define(Context& ctx, const std::string& name, const Value& value);
+
+private:
+	std::optional<std::pair<Value, Ptr<bool>>> lookup_rec(const std::string& name);
+	void define_fixup(Context& ctx, const std::string& name);
 };
 
 // Implementations
@@ -188,6 +295,18 @@ template<> struct Trace<Nil> {
 template<> struct Trace<Value> {
 	void operator()(const Value& x, Tracer& t) {
 		Trace<Value::Variant>{}(x, t);
+	}
+};
+
+template<> struct Trace<Context> {
+	void operator()(const Context& x, Tracer& t) {
+		t(x.object_cls);
+		t(x.class_cls);
+		t(x.nil_cls);
+		t(x.bool_cls);
+		t(x.int_cls);
+		t(x.string_cls);
+		t(x.function_cls);
 	}
 };
 
@@ -212,4 +331,32 @@ template<> struct Trace<Function> {
 
 template<> struct Trace<CppFunction> {
 	void operator()(const CppFunction&, Tracer&) {}
+};
+
+template<> struct Trace<Object> {
+	void operator()(const Object& x, Tracer& t) {
+		Trace<decltype(x.properties)>{}(x.properties, t);
+		t(x.klass);
+	}
+};
+
+template<> struct Trace<CppObject> {
+	void operator()(const CppObject& x, Tracer& t) {
+		t(x.klass);
+	}
+};
+
+template<> struct Trace<detail::MethodEntry> {
+	void operator()(const detail::MethodEntry& x, Tracer& t) {
+		Trace<Value>{}(x.value, t);
+		t(x.valid);
+	}
+};
+
+template<> struct Trace<Klass> {
+	void operator()(const Klass& x, Tracer& t) {
+		Trace<Object>{}(x, t);
+		Trace<decltype(x.methods)>{}(x.methods, t);
+		Trace<decltype(x.base)>{}(x.base, t);
+	}
 };

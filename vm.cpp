@@ -1,6 +1,7 @@
 #include "vm.h"
 
 #include <cassert>
+#include <sstream>
 
 namespace detail {
 
@@ -11,7 +12,24 @@ DataFrame::DataFrame(const Value& value)
 
 }  // namespace detaul
 
-VM::VM(Collector& gc) : gc(gc) {}
+VM::VM(Context& ctx) : ctx(ctx) {
+	auto _guard = ctx.root(this);
+	send_fallback_fn = *ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
+	send_fallback_fn->proto->nargs = 3;
+	send_fallback_fn->proto->code = std::vector<Instruction>{
+		Instruction(Opcode::GetVar, 0),
+		Instruction(Opcode::GetVar, 1),
+		Instruction(Opcode::GetConst, 0),
+		Instruction(Opcode::Call),
+		Instruction(Opcode::GetVar, 2),
+		Instruction(Opcode::GetConst, 0),
+		Instruction(Opcode::Call),
+		Instruction(Opcode::Return)
+	};
+	send_fallback_fn->proto->constants = std::vector<Value>{
+		1
+	};
+}
 
 void VM::trace(Tracer& t) const {
 	for (const auto& x : data_stack) {
@@ -79,8 +97,18 @@ Root<Value> VM::run(const Value& main) {
 			copy_upvalue(instr.arg);
 			break;
 
+		case Opcode::GetProp:
+			get_property();
+			break;
+		case Opcode::SetProp:
+			set_property();
+			break;
+
 		case Opcode::Call:
 			call();
+			break;
+		case Opcode::Send:
+			send();
 			break;
 
 		case Opcode::Return:
@@ -110,7 +138,7 @@ Root<Value> VM::run(const Value& main) {
 	assert(data_stack.size() == 1 && "Data stack final size mismatch");
 	assert(call_stack.size() == 0 && "Call stack final size mismatch");
 	assert(exception_stack.size() == 0 && "Call stack final size mismatch");
-	auto result = gc.root(pop_data());
+	auto result = ctx.root(pop_data());
 	if (exception_thrown) {
 		throw result;
 	} else {
@@ -192,8 +220,8 @@ void VM::set_upvalue(size_t idx) {
 void VM::reset_upvalues() {
 	assert(peek_data().holds<Ptr<Function>>() &&
 			"Accessing upvalues on non-function");
-	auto func1 = gc.root(pop_data().get<Ptr<Function>>());
-	auto func2 = gc.alloc<Function>((*func1)->proto);
+	auto func1 = ctx.root(pop_data().get<Ptr<Function>>());
+	auto func2 = ctx.alloc<Function>((*func1)->proto);
 	push_data(*func2);
 }
 
@@ -203,7 +231,7 @@ void VM::make_upvalue(size_t idx) {
 	idx = call_stack.back().data_bottom + idx;
 	assert(idx < data_stack.size() && "Variable out of range");
 	if (!data_stack[idx].upvalue) {
-		data_stack[idx].upvalue = *gc.alloc<Upvalue>(idx);
+		data_stack[idx].upvalue = *ctx.alloc<Upvalue>(idx);
 	}
 	auto& func = peek_data().get<Ptr<Function>>();
 	func->upvalues.push_back(*data_stack[idx].upvalue);
@@ -218,9 +246,52 @@ void VM::copy_upvalue(size_t idx) {
 	func2->upvalues.push_back(func1->upvalues[idx]);
 }
 
+void VM::get_property() {
+	assert(peek_data().holds<Ptr<std::string>>() && "Prop name is not a string");
+	auto name = pop_data().get<Ptr<std::string>>();
+	auto obj = pop_data();
+	auto value = obj.visit(Overloaded {
+		[&](const Ptr<Object>& obj) {
+			return obj->get_prop(*name);
+		},
+		[&](const Ptr<Klass>& cls) {
+			return cls->get_prop(*name);
+		},
+		[](const auto&) {
+			return std::optional<Value>();
+		}
+	});
+	if (value) {
+		push_data(*value);
+	}
+	else {
+		std::stringstream buf;
+		buf << "Property `" << *name << "` not found";
+		throw_string(buf.str());
+	}
+}
+
+void VM::set_property() {
+	auto value = pop_data();
+	assert(peek_data().holds<Ptr<std::string>>() && "Prop name is not a string");
+	auto name = pop_data().get<Ptr<std::string>>();
+	auto obj = pop_data();
+	obj.visit(Overloaded {
+		[&](const Ptr<Object>& obj) {
+			obj->set_prop(*name, value);
+		},
+		[&](const Ptr<Klass>& cls) {
+			cls->set_prop(*name, value);
+		},
+		[&](const auto&) {
+			throw_string("Can't set property on a primitive value");
+		}
+	});
+}
+
 void VM::call() {
 	size_t n = pop_data().get<int64_t>();
-	auto func = gc.root(remove_data(n));
+	auto func = ctx.root(remove_data(n));
 	func->visit(Overloaded {
 		[&](const Ptr<Function>& func) {
 			call_native(func, n);
@@ -252,17 +323,41 @@ void VM::call_foreign(const Ptr<CppFunction>& func, size_t n) {
 		throw_string("Wrong number of arguments");
 		return;
 	}
-	auto args = gc.root(std::vector<Value>(n));
+	auto args = ctx.root(std::vector<Value>(n));
 	for (size_t i = n; i-- > 0; ) {
 		(*args)[i] = pop_data();
 	}
 	try {
-		auto result = func->inner(gc, *args);
+		auto result = func->inner(ctx, *args);
 		push_data(*result);
 	}
 	catch (const Root<Value>& err) {
 		push_data(*err);
 		throw_();
+	}
+}
+
+void VM::send() {
+	assert(peek_data().holds<Ptr<std::string>>() && "Message is not a string");
+	auto msg = pop_data().get<Ptr<std::string>>();
+	auto obj = pop_data();
+	auto cls = obj.class_of(ctx);
+	if (auto meth = cls->lookup(*msg)) {
+		push_data(*meth);
+		push_data(obj);
+		push_data(1);
+		call();
+	}
+	else if (auto not_understood = cls->lookup("not_understood")) {
+		push_data(*not_understood);
+		push_data(obj);
+		push_data(msg);
+		call_native(send_fallback_fn, 3);
+	}
+	else {
+		std::stringstream buf;
+		buf << "Message `" << *msg << "` could not be handled";
+		throw_string(buf.str());
 	}
 }
 
@@ -323,7 +418,7 @@ void VM::throw_() {
 }
 
 void VM::throw_string(const std::string& s) {
-	push_data(*gc.alloc<std::string>(s));
+	push_data(*ctx.alloc<std::string>(s));
 	throw_();
 }
 

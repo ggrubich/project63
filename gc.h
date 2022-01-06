@@ -7,6 +7,7 @@
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -430,6 +431,18 @@ X(std::string)
 #undef X
 
 template<typename T>
+struct Trace<T*> {
+	template<typename Q = std::remove_const_t<T>,
+		typename = std::enable_if_t<is_traceable_v<Q>>
+	>
+	void operator()(T* x, Tracer& t) {
+		if (x != nullptr) {
+			Trace<Q>{}(std::as_const(*x), t);
+		}
+	}
+};
+
+template<typename T>
 struct Trace<std::vector<T>> {
 	template<typename Q = T, typename = std::enable_if_t<is_traceable_v<Q>>>
 	void operator()(const std::vector<T>& xs, Tracer& t) {
@@ -445,6 +458,19 @@ struct Trace<std::optional<T>> {
 	void operator()(const std::optional<T>& x, Tracer& t) {
 		if (x) {
 			Trace<T>{}(*x, t);
+		}
+	}
+};
+
+template<typename K, typename V>
+struct Trace<std::unordered_map<K, V>> {
+	template<typename K1 = K, typename V1 = V,
+		typename = std::enable_if_t<is_traceable_v<K1> && is_traceable_v<V1>>
+	>
+	void operator()(const std::unordered_map<K, V>& map, Tracer& t) {
+		for (const auto& x : map) {
+			Trace<K>{}(x.first, t);
+			Trace<V>{}(x.second, t);
 		}
 	}
 };

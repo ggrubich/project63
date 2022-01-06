@@ -31,15 +31,20 @@ struct ExceptionFrame {
 
 class VM {
 private:
-	Collector& gc;
+	Context& ctx;
 	std::vector<detail::DataFrame> data_stack;
 	std::vector<detail::CallFrame> call_stack;
 	std::vector<detail::ExceptionFrame> exception_stack;
 	bool exception_thrown;
 
+	// Function called when an object doesn't have a requested method but has
+	// not_understood method. Takes three arguments: (not_understood, obj, msg)
+	// and effectively returns the value of not_understood(obj)(msg).
+	Ptr<Function> send_fallback_fn;
+
 public:
 	// Constructs a vm tied to the given garbage collector instance.
-	explicit VM(Collector& gc);
+	explicit VM(Context& ctx);
 
 	void trace(Tracer& t) const;
 
@@ -66,9 +71,13 @@ private:
 	void make_upvalue(size_t idx);
 	void copy_upvalue(size_t idx);
 
+	void get_property();
+	void set_property();
+
 	void call();
 	void call_native(const Ptr<Function>& func, size_t n);
 	void call_foreign(const Ptr<CppFunction>& func, size_t n);
+	void send();
 
 	void return_();
 	void jump(size_t addr);

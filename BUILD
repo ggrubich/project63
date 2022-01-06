@@ -17,7 +17,7 @@ cc_binary(
 cc_test(
     name = "test",
     size = "small",
-    srcs = ["gc_test.cpp", "vm_test.cpp"],
+    srcs = ["gc_test.cpp", "value_test.cpp", "vm_test.cpp"],
     deps = [":lib", "@googletest//:gtest_main"],
     copts = compiler_opts,
 )

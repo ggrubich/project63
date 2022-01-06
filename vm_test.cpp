@@ -1,36 +1,37 @@
 #include "vm.h"
 
 #include <cassert>
+#include <tuple>
 
 #include <gtest/gtest.h>
 
 template<typename F>
-Root<Ptr<CppFunction>> make_unary(Collector& gc, F f) {
-	return gc.alloc<CppFunction>(1, [=](Collector& gc, const std::vector<Value>& xs) {
+Root<Ptr<CppFunction>> make_unary(Context& ctx, F f) {
+	return ctx.alloc<CppFunction>(1, [=](Context& ctx, const std::vector<Value>& xs) {
 		assert(xs.size() == 1);
 		auto x = std::get<int64_t>(xs[0].inner);
-		return gc.root(Value(f(x)));
+		return ctx.root(Value(f(x)));
 	});
 }
 
 template<typename F>
-Root<Ptr<CppFunction>> make_binary(Collector& gc, F f) {
-	return gc.alloc<CppFunction>(2, [=](Collector& gc, const std::vector<Value>& xs) {
+Root<Ptr<CppFunction>> make_binary(Context& ctx, F f) {
+	return ctx.alloc<CppFunction>(2, [=](Context& ctx, const std::vector<Value>& xs) {
 		assert(xs.size() == 2);
 		auto x = std::get<int64_t>(xs[0].inner);
 		auto y = std::get<int64_t>(xs[1].inner);
-		return gc.root(Value(f(x, y)));
+		return ctx.root(Value(f(x, y)));
 	});
 }
 
 TEST(VmTest, Factorial) {
-	Collector gc;
+	Context ctx;
 
-	auto positive = make_unary(gc, [](int64_t x) { return x > 0; });
-	auto pred = make_unary(gc, [](int64_t x) { return x - 1; });
-	auto mult = make_binary(gc, std::multiplies<int64_t>{});
+	auto positive = make_unary(ctx, [](int64_t x) { return x > 0; });
+	auto pred = make_unary(ctx, [](int64_t x) { return x - 1; });
+	auto mult = make_binary(ctx, std::multiplies<int64_t>{});
 
-	auto fact = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto fact = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*fact)->proto->nargs = 1;
 	(*fact)->proto->code = std::vector<Instruction>{
 		// Var(0) = iterator
@@ -71,7 +72,7 @@ TEST(VmTest, Factorial) {
 		*mult
 	};
 
-	auto main = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto main = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*main)->proto->nargs = 0;
 	(*main)->proto->code = std::vector<Instruction>{
 		Instruction(Opcode::GetUp, 0),  // fact
@@ -85,7 +86,7 @@ TEST(VmTest, Factorial) {
 		Value(0),  // n
 	};
 	(*main)->upvalues = std::vector<Ptr<Upvalue>>{
-		*gc.alloc<Upvalue>(Value(*fact))
+		*ctx.alloc<Upvalue>(Value(*fact))
 	};
 
 	std::vector<std::pair<int64_t, int64_t>> inputs = {
@@ -95,7 +96,7 @@ TEST(VmTest, Factorial) {
 		{7, 5040},
 		{10, 3628800}
 	};
-	auto vm = gc.root(VM(gc));
+	auto vm = ctx.root(VM(ctx));
 	for (auto p : inputs) {
 		(*main)->proto->constants[1] = p.first;
 		auto actual = vm->run(*main)->get<int64_t>();
@@ -105,13 +106,13 @@ TEST(VmTest, Factorial) {
 }
 
 TEST(VmTest, Fibbonacci) {
-	Collector gc;
+	Context ctx;
 
-	auto less = make_binary(gc, std::less<int64_t>{});
-	auto sub = make_binary(gc, std::minus<int64_t>{});
-	auto add = make_binary(gc, std::plus<int64_t>{});
+	auto less = make_binary(ctx, std::less<int64_t>{});
+	auto sub = make_binary(ctx, std::minus<int64_t>{});
+	auto add = make_binary(ctx, std::plus<int64_t>{});
 
-	auto fib = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto fib = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*fib)->proto->nargs = 1;
 	(*fib)->proto->code = std::vector<Instruction>{
 		// return n if n < 2
@@ -157,7 +158,7 @@ TEST(VmTest, Fibbonacci) {
 		Value(*fib)
 	};
 
-	auto main = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto main = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*main)->proto->nargs = 0;
 	(*main)->proto->code = std::vector<Instruction>{
 		Instruction(Opcode::GetConst, 2),  // fib
@@ -172,7 +173,7 @@ TEST(VmTest, Fibbonacci) {
 		Value(*fib),
 	};
 
-	auto vm = gc.root(VM(gc));
+	auto vm = ctx.root(VM(ctx));
 	std::vector<std::pair<int64_t, int64_t>> inputs{
 		{0, 0},
 		{1, 1},
@@ -191,13 +192,13 @@ TEST(VmTest, Fibbonacci) {
 }
 
 TEST(VmTest, Closures) {
-	Collector gc;
+	Context ctx;
 
-	auto add = make_binary(gc, std::plus<int64_t>{});
+	auto add = make_binary(ctx, std::plus<int64_t>{});
 
 	// Generates the next number.
 	// Excpects 2 upvalues (increment and accumulator).
-	auto next = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto next = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*next)->proto->nargs = 0;
 	(*next)->proto->code = std::vector<Instruction>{
 		Instruction(Opcode::GetConst, 1),  // add
@@ -216,7 +217,7 @@ TEST(VmTest, Closures) {
 
 	// Creates the generator closure.
 	// Expects 1 upvalue (increment)
-	auto make = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto make = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*make)->proto->nargs = 0;
 	(*make)->proto->code = std::vector<Instruction>{
 		Instruction(Opcode::GetConst, 0),  // accumulator variable
@@ -231,7 +232,7 @@ TEST(VmTest, Closures) {
 		Value(*next)
 	};
 
-	auto main = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto main = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*main)->proto->nargs = 0;
 	(*main)->proto->code = std::vector<Instruction>{
 		Instruction(Opcode::GetConst, 0),  // increment variable
@@ -258,23 +259,23 @@ TEST(VmTest, Closures) {
 		Value(*make)
 	};
 
-	auto vm = gc.root(VM(gc));
+	auto vm = ctx.root(VM(ctx));
 	auto actual = vm->run(*main)->get<int64_t>();
 	EXPECT_EQ(actual, 6);
 }
 
 TEST(VmTest, Exceptions) {
-	Collector gc;
+	Context ctx;
 
-	auto succ = make_unary(gc, [](int64_t x) { return x + 1; });
+	auto succ = make_unary(ctx, [](int64_t x) { return x + 1; });
 
-	auto fail = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto fail = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*fail)->proto->nargs = 1;
 	(*fail)->proto->code = std::vector<Instruction>{
 		Instruction(Opcode::Throw)
 	};
 
-	auto main = gc.alloc<Function>(*gc.alloc<FunctionProto>());
+	auto main = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	(*main)->proto->nargs = 0;
 	(*main)->proto->code = std::vector<Instruction>{
 		// Junk in variable 0.
@@ -320,7 +321,7 @@ TEST(VmTest, Exceptions) {
 		*succ
 	};
 
-	auto vm = gc.root(VM(gc));
+	auto vm = ctx.root(VM(ctx));
 	try {
 		vm->run(*main);
 		EXPECT_FALSE(true) << "Main didn't throw";
@@ -328,5 +329,129 @@ TEST(VmTest, Exceptions) {
 	catch (const Root<Value>& err) {
 		auto actual = err->get<int64_t>();
 		EXPECT_EQ(actual, 4) << "Value thrown from main is not 4";
+	}
+}
+
+TEST(VmTest, Properties) {
+	Context ctx;
+	auto obj = ctx.alloc<Object>(ctx.object_cls);
+	auto main = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
+	(*main)->proto->nargs = 0;
+	(*main)->proto->code = std::vector<Instruction>{
+		Instruction(Opcode::GetConst, 0),
+		// @foo = "foo"
+		Instruction(Opcode::GetVar, 0),
+		Instruction(Opcode::GetConst, 1),
+		Instruction(Opcode::GetConst, 1),
+		Instruction(Opcode::SetProp),
+		// @bar = "bar"
+		Instruction(Opcode::GetVar, 0),
+		Instruction(Opcode::GetConst, 2),
+		Instruction(Opcode::GetConst, 2),
+		Instruction(Opcode::SetProp),
+		// @foo = @bar
+		Instruction(Opcode::GetVar, 0),
+		Instruction(Opcode::GetConst, 1),
+		Instruction(Opcode::GetVar, 0),
+		Instruction(Opcode::GetConst, 2),
+		Instruction(Opcode::GetProp),
+		Instruction(Opcode::SetProp),
+		// return @foo
+		Instruction(Opcode::GetVar, 0),
+		Instruction(Opcode::GetConst, 1),
+		Instruction(Opcode::GetProp),
+		Instruction(Opcode::Return)
+	};
+	(*main)->proto->constants = std::vector<Value>{
+		*obj,
+		*ctx.alloc<std::string>("foo"),
+		*ctx.alloc<std::string>("bar")
+	};
+	auto vm = ctx.root(VM(ctx));
+	auto actual = *vm->run(*main)->get<Ptr<std::string>>();
+	EXPECT_EQ(actual, "bar") << "Result of main is wrong";
+}
+
+TEST(VmTest, Methods) {
+	Context ctx;
+
+	// Base inherits from Object and defines following methods:
+	//  - foo - returns "base_foo"
+	auto base_cls = ctx.alloc<Klass>(ctx, ctx.object_cls);
+	auto base_foo = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
+	(*base_foo)->proto->nargs = 1;
+	(*base_foo)->proto->code = std::vector<Instruction>{
+		Instruction(Opcode::GetConst, 0),
+		Instruction(Opcode::Return)
+	};
+	(*base_foo)->proto->constants = std::vector<Value>{
+		*ctx.alloc<std::string>("base_foo")
+	};
+	(*base_cls)->define(ctx, "foo", *base_foo);
+
+	// Left inherits from Base and defines following methods:
+	//  - foo - returns "derived_foo"
+	auto left_cls = ctx.alloc<Klass>(ctx, *base_cls);
+	auto left_foo = ctx.alloc<CppFunction>(1, [](Context& ctx, const std::vector<Value>&) {
+		return ctx.alloc<std::string>("derived_foo");
+	});
+	(*left_cls)->define(ctx, "foo", *left_foo);
+
+	// Right inherits from Base and defines following methods:
+	//  - not_understood(msg) - returns "generated_" concatedated with msg
+	auto right_cls = ctx.alloc<Klass>(ctx, *base_cls);
+	auto right_not_understood = ctx.alloc<CppFunction>(
+		1,
+		[](Context& ctx, const std::vector<Value>&)
+	{
+		return ctx.alloc<CppFunction>(
+			1,
+			[](Context& ctx, const std::vector<Value>& xs)
+		{
+			auto x = xs[0].get<Ptr<std::string>>();
+			return ctx.alloc<std::string>(std::string("generated_") + *x);
+		});
+	});
+	(*right_cls)->define(ctx, "not_understood", *right_not_understood);
+
+	auto left = ctx.alloc<Object>(*left_cls);
+	auto right = ctx.alloc<Object>(*right_cls);
+
+	// Main sends message from const slot 1 to object from const
+	// slot 0 and returns the result.
+	auto main = ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
+	(*main)->proto->nargs = 0;
+	(*main)->proto->code = std::vector<Instruction>{
+		Instruction(Opcode::GetConst, 0),
+		Instruction(Opcode::GetConst, 1),
+		Instruction(Opcode::Send),
+		Instruction(Opcode::Return)
+	};
+	(*main)->proto->constants = std::vector<Value>(2);
+
+	// Test cases with the receiver, message and the expected result.
+	// Null result means that we expect a throw.
+	std::vector<std::tuple<Value, std::string, std::optional<std::string>>> inputs{
+		{*left, "foo", std::string("derived_foo")},
+		{*right, "foo", std::string("base_foo")},
+		{*left, "bar", std::nullopt},
+		{*right, "bar", std::string("generated_bar")}
+	};
+	auto vm = ctx.root(VM(ctx));
+	for (const auto& input : inputs) {
+		Value obj;
+		std::string msg;
+		std::optional<std::string> expected;
+		std::tie(obj, msg, expected) = input;
+		(*main)->proto->constants[0] = obj;
+		(*main)->proto->constants[1] = *ctx.alloc<std::string>(msg);
+		if (expected) {
+			auto actual = *vm->run(*main)->get<Ptr<std::string>>();
+			EXPECT_EQ(actual, *expected) << msg << "result is wrong";
+		}
+		else {
+			EXPECT_THROW({ vm->run(*main); }, Root<Value>)
+				<< "Sending " << msg << " didn't throw an exception";
+		}
 	}
 }
