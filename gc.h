@@ -4,11 +4,14 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
-#include <optional>
 #include <stdexcept>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
+
+#include <array>
+#include <optional>
+#include <tuple>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -208,12 +211,15 @@ public:
 	template<typename T, typename... Args>
 	Root<Ptr<T>> alloc(Args&&... args);
 
-	// Roots a value.
-	template<typename T>
-	Root<std::decay_t<T>> root(T&& value);
+	template<nullptr_t = nullptr, typename T>
+	Root<Ptr<std::decay_t<T>>> alloc(T&& value);
 
+	// Roots a value.
 	template<typename T, typename... Args>
-	Root<T> root(std::in_place_t, Args&&... args);
+	Root<T> root(Args&&... args);
+
+	template<nullptr_t = nullptr, typename T>
+	Root<std::decay_t<T>> root(T&& value);
 
 	// Triggers a gc cycle.
 	void collect();
@@ -398,16 +404,21 @@ Root<Ptr<T>> Collector::alloc(Args&&... args) {
 	return root(Ptr<T>(box));
 }
 
-template<typename T>
-Root<std::decay_t<T>> Collector::root(T&& value) {
-	return root<std::decay_t<T>>(std::in_place, std::forward<T>(value));
+template<nullptr_t = nullptr, typename T>
+Root<Ptr<std::decay_t<T>>> Collector::alloc(T&& value) {
+	return alloc<std::decay_t<T>>(std::forward<T>(value));
 }
 
 template<typename T, typename... Args>
-Root<T> Collector::root(std::in_place_t, Args&&... args) {
+Root<T> Collector::root(Args&&... args) {
 	static_assert(is_traceable_v<T>,
 			"Rooted objects need to implement Trace");
 	return Root<T>(&root_head, std::forward<Args>(args)...);
+}
+
+template<nullptr_t = nullptr, typename T>
+Root<std::decay_t<T>> Collector::root(T&& value) {
+	return root<std::decay_t<T>>(std::forward<T>(value));
 }
 
 // Trace implementations for builtin types.
@@ -477,11 +488,16 @@ struct Trace<std::unordered_map<K, V>> {
 
 namespace detail {
 
+struct TraceDisabled {};
+
+template<typename T>
+using remove_cref_t = std::remove_const_t<std::remove_reference_t<T>>;
+
 template<typename... Ts>
 struct TraceVariant {
 	void operator()(const std::variant<Ts...>& v, Tracer& t) {
 		std::visit([&](const auto& x) {
-			using T = std::decay_t<decltype(x)>;
+			using T = remove_cref_t<decltype(x)>;
 			Trace<T>{}(x, t);
 		}, v);
 	}
@@ -494,6 +510,46 @@ struct Trace<std::variant<Ts...>>
 	: std::conditional_t<
 		std::conjunction_v<is_traceable<Ts>...>,
 		detail::TraceVariant<Ts...>,
-		std::monostate
+		detail::TraceDisabled
+	>
+{};
+
+namespace detail {
+
+template<typename Tuple>
+struct TraceTuple {
+	void operator()(const Tuple& tuple, Tracer& t) {
+		std::apply([&](const auto&... xs) {
+			(Trace<remove_cref_t<decltype(xs)>>{}(xs, t), ...);
+		}, tuple);
+	}
+};
+
+}  // namespace detail
+
+template<typename... Ts>
+struct Trace<std::tuple<Ts...>>
+	: std::conditional_t<
+		std::conjunction_v<is_traceable<Ts>...>,
+		detail::TraceTuple<std::tuple<Ts...>>,
+		detail::TraceDisabled
+	>
+{};
+
+template<typename T1, typename T2>
+struct Trace<std::pair<T1, T2>>
+	: std::conditional_t<
+		is_traceable_v<T1> && is_traceable_v<T2>,
+		detail::TraceTuple<std::pair<T1, T2>>,
+		detail::TraceDisabled
+	>
+{};
+
+template<typename T, size_t N>
+struct Trace<std::array<T, N>>
+	: std::conditional_t<
+		is_traceable_v<T>,
+		detail::TraceTuple<std::array<T, N>>,
+		detail::TraceDisabled
 	>
 {};

@@ -45,10 +45,7 @@ Function::Function(const Ptr<FunctionProto>& proto)
 	, upvalues()
 {}
 
-CppFunction::CppFunction(uint64_t nargs, Inner inner)
-	: nargs(nargs)
-	, inner(std::move(inner))
-{}
+CppFunction::CppFunction(uint64_t nargs) : nargs(nargs) {}
 
 Object::Object(const Ptr<Klass>& klass)
 	: properties()

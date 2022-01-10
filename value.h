@@ -218,14 +218,16 @@ struct Function {
 	Function(const Ptr<FunctionProto>& proto);
 };
 
-// Foreign function implemented in C++.
+// Base classs for foreign functions implemented in C++.
 struct CppFunction {
-	using Inner = std::function<Root<Value>(Context&, const std::vector<Value>&)>;
-
 	uint64_t nargs;
-	Inner inner;
 
-	CppFunction(uint64_t nargs, Inner inner);
+	using Args = std::vector<Value>;
+
+	CppFunction(uint64_t nargs);
+	virtual ~CppFunction() = default;
+
+	virtual Root<Value> operator()(Context& ctx, const Args& args) = 0;
 };
 
 // A native compound object.
@@ -286,6 +288,52 @@ private:
 	void define_fixup(Context& ctx, const std::string& name);
 };
 
+// Class for regular C++ function closures.
+// A closure can capture a variable number of GC-managed values Cs which will
+// be passed to callback F on each invocation.
+// The callback F needs to have signature compatible with:
+//   Root<Value> f(
+//		Context& ctx,
+//		const std::vector<Value>& args,
+//		Cs&... captures
+//   );
+// where args are arguments to the function and captures are the captured values.
+template<typename F, typename... Cs>
+struct CppLambda : CppFunction {
+	F func;
+	std::tuple<Cs...> captures;
+
+	CppLambda(uint64_t nargs, F func, Cs... captures);
+
+	Root<Value> operator()(Context& ctx, const Args& args) override;
+};
+
+// Class for C++ method closures.
+// A method is equivalent to a function which takes a single self argument
+// and returns a closure which takes the actual arguments. Like CppLambda,
+// CppMethod can also capture GC-managed values.
+// On each invocation of a method, the callback F and captured values Cs will
+// be copy constructed into the new closure.
+// The callback F needs to have a signature compatible with:
+//   Root<Value> f(
+//		Context& ctx,
+//		const Value& self,
+//		const std::vector<Value>& args,
+//		Cs&... captures
+//   );
+// where self is the argument from the first invocation, args are arguments from
+// the second invocation and captures are the captured values.
+template<typename F, typename... Cs>
+struct CppMethod : CppFunction {
+	uint64_t bound_nargs;
+	F func;
+	std::tuple<Cs...> captures;
+
+	CppMethod(uint64_t nargs, F func, Cs... captures);
+
+	Root<Value> operator()(Context& ctx, const Args& args) override;
+};
+
 // Implementations
 
 template<> struct Trace<Nil> {
@@ -329,10 +377,6 @@ template<> struct Trace<Function> {
 	}
 };
 
-template<> struct Trace<CppFunction> {
-	void operator()(const CppFunction&, Tracer&) {}
-};
-
 template<> struct Trace<Object> {
 	void operator()(const Object& x, Tracer& t) {
 		Trace<decltype(x.properties)>{}(x.properties, t);
@@ -358,5 +402,77 @@ template<> struct Trace<Klass> {
 		Trace<Object>{}(x, t);
 		Trace<decltype(x.methods)>{}(x.methods, t);
 		Trace<decltype(x.base)>{}(x.base, t);
+	}
+};
+
+template<typename F, typename... Cs>
+CppLambda<F, Cs...>::CppLambda(uint64_t nargs, F func, Cs... captures)
+	: CppFunction(nargs)
+	, func(std::move(func))
+	, captures(std::move(captures)...)
+{
+	static_assert(
+		std::is_invocable_r_v<Root<Value>, F&, Context&, const Args&, Cs&...>,
+		"Wrong function signture for CppLambda"
+	);
+}
+
+template<typename F, typename... Cs>
+Root<Value> CppLambda<F, Cs...>::operator()(Context& ctx, const Args& args) {
+	return std::apply([&](auto&... captures) {
+		return func(ctx, args, captures...);
+	}, captures);
+}
+
+template<typename F, typename... Cs>
+struct Trace<CppLambda<F, Cs...>> {
+	template<typename Tuple = std::tuple<Cs...>,
+		typename = std::enable_if_t<is_traceable_v<Tuple>>
+	>
+	void operator()(const CppLambda<F, Cs...>& x, Tracer& t) {
+		Trace<Tuple>{}(x.captures, t);
+	}
+};
+
+template<typename F, typename... Cs>
+CppMethod<F, Cs...>::CppMethod(uint64_t nargs, F func, Cs... captures)
+	: CppFunction(1)
+	, bound_nargs(nargs)
+	, func(std::move(func))
+	, captures(std::move(captures)...)
+{
+	static_assert(
+		std::is_invocable_r_v<Root<Value>, F&, Context&, const Value&, const Args&, Cs&...>,
+		"Wrong function signture for CppMethod"
+	);
+}
+
+template<typename F, typename... Cs>
+Root<Value> CppMethod<F, Cs...>::operator()(Context& ctx, const Args& args) {
+	auto bound = std::apply([&](auto&... captures) {
+		return CppLambda(
+			bound_nargs,
+			[func = func](
+				Context& ctx,
+				const Args& args,
+				const Value& self,
+				auto&... captures)
+			{
+				return func(ctx, self, args, captures...);
+			},
+			args[0],
+			captures...
+		);
+	}, captures);
+	return ctx.alloc(std::move(bound));
+}
+
+template<typename F, typename... Cs>
+struct Trace<CppMethod<F, Cs...>> {
+	template<typename Tuple = std::tuple<Cs...>,
+		typename = std::enable_if_t<is_traceable_v<Tuple>>
+	>
+	void operator()(const CppMethod<F, Cs...>& x, Tracer& t) {
+		Trace<Tuple>{}(x.captures, t);
 	}
 };

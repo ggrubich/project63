@@ -7,21 +7,21 @@
 
 template<typename F>
 Root<Ptr<CppFunction>> make_unary(Context& ctx, F f) {
-	return ctx.alloc<CppFunction>(1, [=](Context& ctx, const std::vector<Value>& xs) {
+	return ctx.alloc(CppLambda(1, [=](Context& ctx, const std::vector<Value>& xs) {
 		assert(xs.size() == 1);
 		auto x = std::get<int64_t>(xs[0].inner);
 		return ctx.root(Value(f(x)));
-	});
+	}));
 }
 
 template<typename F>
 Root<Ptr<CppFunction>> make_binary(Context& ctx, F f) {
-	return ctx.alloc<CppFunction>(2, [=](Context& ctx, const std::vector<Value>& xs) {
+	return ctx.alloc(CppLambda(2, [=](Context& ctx, const std::vector<Value>& xs) {
 		assert(xs.size() == 2);
 		auto x = std::get<int64_t>(xs[0].inner);
 		auto y = std::get<int64_t>(xs[1].inner);
 		return ctx.root(Value(f(x, y)));
-	});
+	}));
 }
 
 TEST(VmTest, Factorial) {
@@ -392,26 +392,21 @@ TEST(VmTest, Methods) {
 	// Left inherits from Base and defines following methods:
 	//  - foo - returns "derived_foo"
 	auto left_cls = ctx.alloc<Klass>(ctx, *base_cls);
-	auto left_foo = ctx.alloc<CppFunction>(1, [](Context& ctx, const std::vector<Value>&) {
+	auto left_foo = ctx.alloc(CppLambda(1, [](Context& ctx, const std::vector<Value>&) {
 		return ctx.alloc<std::string>("derived_foo");
-	});
+	}));
 	(*left_cls)->define(ctx, "foo", *left_foo);
 
 	// Right inherits from Base and defines following methods:
 	//  - not_understood(msg) - returns "generated_" concatedated with msg
 	auto right_cls = ctx.alloc<Klass>(ctx, *base_cls);
-	auto right_not_understood = ctx.alloc<CppFunction>(
+	auto right_not_understood = ctx.alloc(CppMethod(
 		1,
-		[](Context& ctx, const std::vector<Value>&)
-	{
-		return ctx.alloc<CppFunction>(
-			1,
-			[](Context& ctx, const std::vector<Value>& xs)
-		{
+		[](Context& ctx, const Value&, const std::vector<Value>& xs) {
 			auto x = xs[0].get<Ptr<std::string>>();
 			return ctx.alloc<std::string>(std::string("generated_") + *x);
-		});
-	});
+		}
+	));
 	(*right_cls)->define(ctx, "not_understood", *right_not_understood);
 
 	auto left = ctx.alloc<Object>(*left_cls);
