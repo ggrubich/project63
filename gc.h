@@ -428,6 +428,14 @@ struct Trace<Ptr<T>> {
 	void operator()(const Ptr<T>& x, Tracer& t) { t(x); }
 };
 
+template<typename T>
+struct Trace<const T> {
+	template<typename Q = T, typename = std::enable_if_t<is_traceable_v<Q>>>
+	void operator()(const T& x, Tracer& t) {
+		Trace<T>{}(x, t);
+	}
+};
+
 #define X(T) \
 	template<> struct Trace<T> { \
 		void operator()(const T&, Tracer&) {} \
@@ -443,12 +451,10 @@ X(std::string)
 
 template<typename T>
 struct Trace<T*> {
-	template<typename Q = std::remove_const_t<T>,
-		typename = std::enable_if_t<is_traceable_v<Q>>
-	>
+	template<typename Q = T, typename = std::enable_if_t<is_traceable_v<Q>>>
 	void operator()(T* x, Tracer& t) {
 		if (x != nullptr) {
-			Trace<Q>{}(std::as_const(*x), t);
+			Trace<T>{}(std::as_const(*x), t);
 		}
 	}
 };
@@ -490,14 +496,11 @@ namespace detail {
 
 struct TraceDisabled {};
 
-template<typename T>
-using remove_cref_t = std::remove_const_t<std::remove_reference_t<T>>;
-
 template<typename... Ts>
 struct TraceVariant {
 	void operator()(const std::variant<Ts...>& v, Tracer& t) {
 		std::visit([&](const auto& x) {
-			using T = remove_cref_t<decltype(x)>;
+			using T = std::remove_reference_t<decltype(x)>;
 			Trace<T>{}(x, t);
 		}, v);
 	}
@@ -520,7 +523,7 @@ template<typename Tuple>
 struct TraceTuple {
 	void operator()(const Tuple& tuple, Tracer& t) {
 		std::apply([&](const auto&... xs) {
-			(Trace<remove_cref_t<decltype(xs)>>{}(xs, t), ...);
+			(Trace<std::remove_reference_t<decltype(xs)>>{}(xs, t), ...);
 		}, tuple);
 	}
 };
