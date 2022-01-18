@@ -18,9 +18,9 @@ RootBase::~RootBase() {
 	detach();
 }
 
-RootBase::RootBase(const RootBase& other) : RootBase(other.head) {}
+RootBase::RootBase(const RootBase& other) noexcept : RootBase(other.head) {}
 
-RootBase& RootBase::operator=(const RootBase& other) {
+RootBase& RootBase::operator=(const RootBase& other) noexcept {
 	// If both roots belong to the same linked list we don't need
 	// to do anything as order of nodes doesn't matter.
 	if (head != other.head) {

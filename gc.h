@@ -94,11 +94,11 @@ private:
 	explicit Ptr(detail::BoxBase* box);
 
 public:
-	Ptr();
+	Ptr() noexcept;
 	~Ptr();
-	Ptr(const Ptr<T>&);
-	Ptr(Ptr<T>&&);
-	Ptr& operator=(Ptr<T>);
+	Ptr(const Ptr<T>&) noexcept;
+	Ptr(Ptr<T>&&) noexcept;
+	Ptr& operator=(Ptr<T>) noexcept;
 
 	// Implicit pointer conversion.
 	// For implementation reasons, conversions that would change pointer's
@@ -138,8 +138,8 @@ struct RootBase {
 
 	explicit RootBase(RootBase** head);
 	~RootBase();
-	RootBase(const RootBase&);
-	RootBase& operator=(const RootBase&);
+	RootBase(const RootBase&) noexcept;
+	RootBase& operator=(const RootBase&) noexcept;
 
 	void attach(RootBase** head);
 	void detach();
@@ -260,7 +260,7 @@ Ptr<T>::Ptr(detail::BoxBase* box) : box(box) {
 }
 
 template<typename T>
-Ptr<T>::Ptr() : box(nullptr) {}
+Ptr<T>::Ptr() noexcept : box(nullptr) {}
 
 template<typename T>
 Ptr<T>::~Ptr() {
@@ -270,15 +270,15 @@ Ptr<T>::~Ptr() {
 }
 
 template<typename T>
-Ptr<T>::Ptr(const Ptr<T>& ptr) : Ptr(ptr.box) {}
+Ptr<T>::Ptr(const Ptr<T>& ptr) noexcept : Ptr(ptr.box) {}
 
 template<typename T>
-Ptr<T>::Ptr(Ptr<T>&& ptr) : Ptr() {
+Ptr<T>::Ptr(Ptr<T>&& ptr) noexcept : Ptr() {
 	std::swap(box, ptr.box);
 }
 
 template<typename T>
-Ptr<T>& Ptr<T>::operator=(Ptr<T> ptr) {
+Ptr<T>& Ptr<T>::operator=(Ptr<T> ptr) noexcept {
 	std::swap(box, ptr.box);
 	return *this;
 }
