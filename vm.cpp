@@ -69,6 +69,9 @@ Root<Value> VM::run(const Value& main) {
 		case Opcode::Dup:
 			push_data(peek_data());
 			break;
+		case Opcode::Nil:
+			push_data(Nil());
+			break;
 
 		case Opcode::GetVar:
 			get_variable(instr.arg);

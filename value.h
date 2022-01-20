@@ -30,6 +30,9 @@ enum class Opcode : uint8_t {
 	// Dup(), ( x -- x x )
 	// Duplicates the topmost value on the data stack.
 	Dup,
+	// Nil(), ( -- nil )
+	// Pushes a nil onto the data stack.
+	Nil,
 
 	// Local variable operations.
 	// Local variables are stored on the data stack. Indices used by their opcodes
