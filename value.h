@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <ostream>
 #include <unordered_map>
 #include <vector>
 
@@ -143,6 +144,8 @@ enum class Opcode : uint8_t {
 	Uncatch,
 };
 
+std::ostream& operator<<(std::ostream& s, Opcode op);
+
 // VM instruction along with its argument.
 struct Instruction {
 	Opcode op : 5;
@@ -151,6 +154,8 @@ struct Instruction {
 	Instruction(Opcode op);
 	Instruction(Opcode op, uint32_t arg);
 };
+
+std::ostream& operator<<(std::ostream& s, Instruction instr);
 
 struct Nil {};
 
@@ -182,7 +187,11 @@ struct Value : Variant<
 
 	Value();
 
+	// Returns value's class.
 	Ptr<Klass> class_of(Context&) const;
+
+	// Returns a human-readable representation of the value.
+	std::string inspect() const;
 };
 
 // A shared global context.
@@ -219,6 +228,12 @@ struct Function {
 	std::vector<Ptr<Upvalue>> upvalues;
 
 	Function(const Ptr<FunctionProto>& proto);
+
+	// Returns a human-readable listing of function's bytecode.
+	std::string dump() const;
+
+private:
+	void dump_rec(std::ostream& buf, std::function<int64_t(const void*)>& label) const;
 };
 
 // Base classs for foreign functions implemented in C++.

@@ -1,11 +1,68 @@
 #include "value.h"
 
+#include <cmath>
+#include <iomanip>
+#include <ios>
+#include <sstream>
+
+std::ostream& operator<<(std::ostream& s, Opcode op) {
+	switch (op) {
+	case Opcode::Nop:        s << "Nop"; break;
+	case Opcode::Pop:        s << "Pop"; break;
+	case Opcode::Nip:        s << "Nip"; break;
+	case Opcode::Dup:        s << "Dup"; break;
+	case Opcode::Nil:        s << "Nil"; break;
+	case Opcode::GetVar:     s << "GetVar"; break;
+	case Opcode::SetVar:     s << "SetVar"; break;
+	case Opcode::GetConst:   s << "GetConst"; break;
+	case Opcode::GetUp:      s << "GetUp"; break;
+	case Opcode::SetUp:      s << "SetUp"; break;
+	case Opcode::ResetUp:    s << "ResetUp"; break;
+	case Opcode::MakeUp:     s << "MakeUp"; break;
+	case Opcode::CopyUp:     s << "CopyUp"; break;
+	case Opcode::GetProp:    s << "GetProp"; break;
+	case Opcode::SetProp:    s << "SetProp"; break;
+	case Opcode::Call:       s << "Call"; break;
+	case Opcode::Send:       s << "Send"; break;
+	case Opcode::Return:     s << "Return"; break;
+	case Opcode::Jump:       s << "Jump"; break;
+	case Opcode::JumpIf:     s << "JumpIf"; break;
+	case Opcode::JumpUnless: s << "JumpUnless"; break;
+	case Opcode::Throw:      s << "Throw"; break;
+	case Opcode::Catch:      s << "Catch"; break;
+	case Opcode::Uncatch:    s << "Uncatch"; break;
+	}
+	return s;
+}
+
 Instruction::Instruction(Opcode op) : Instruction(op, 0) {}
 
 Instruction::Instruction(Opcode op, uint32_t arg)
 	: op(op)
 	, arg(arg)
 {}
+
+std::ostream& operator<<(std::ostream& s, Instruction instr) {
+	s << instr.op;
+	switch (instr.op) {
+	case Opcode::GetVar:
+	case Opcode::SetVar:
+	case Opcode::GetConst:
+	case Opcode::GetUp:
+	case Opcode::SetUp:
+	case Opcode::MakeUp:
+	case Opcode::CopyUp:
+	case Opcode::Jump:
+	case Opcode::JumpIf:
+	case Opcode::JumpUnless:
+	case Opcode::Catch:
+		s << " " << instr.arg;
+		break;
+	default:
+		break;
+	}
+	return s;
+}
 
 Value::Value() : Variant(Nil()) {}
 
@@ -21,6 +78,46 @@ Ptr<Klass> Value::class_of(Context& ctx) const {
 		[&](const Ptr<CppObject>& obj) { return obj->klass; },
 		[&](const Ptr<Klass>& cls) { return cls->klass; }
 	});
+}
+
+namespace {
+
+void inspect_string(std::ostream& buf, const std::string& str) {
+	constexpr char escapes[] = {'a', 'b', 't', 'n', 'v', 'f', 'r'};
+	buf << "\"";
+	for (auto c : str) {
+		if ('\a' <= c && c <= '\r') {
+			buf << "\\" << escapes[c - '\a'];
+		}
+		else if (0x00 <= c && c <= 0x1f) {
+			buf << "\\x" << std::setw(2) << std::setfill('0') << std::hex << int(c);
+		}
+		else if (c == '"' || c == '\\') {
+			buf << "\\" << c;
+		}
+		else {
+			buf << c;
+		}
+	}
+	buf << "\"";
+}
+
+}  // namespace annonymous
+
+std::string Value::inspect() const {
+	std::stringstream buf;
+	visit(Overloaded {
+		[&](const Nil&) { buf << "nil"; },
+		[&](const bool& b) { buf << (b ? "true" : "false"); },
+		[&](const int64_t& n) { buf << n; },
+		[&](const Ptr<std::string>& str) { inspect_string(buf, *str); },
+		[&](const Ptr<Function>& x) { buf << "Function#" << x.address(); },
+		[&](const Ptr<CppFunction>& x) { buf << "CppFunction#" << x.address(); },
+		[&](const Ptr<Object>& x) { buf << "Object#" << x.address(); },
+		[&](const Ptr<CppObject>& x) { buf << "CppObject#" << x.address(); },
+		[&](const Ptr<Klass>& x) { buf << "Klass#" << x.address(); }
+	});
+	return buf.str();
 }
 
 Context::Context()
@@ -44,6 +141,58 @@ Function::Function(const Ptr<FunctionProto>& proto)
 	: proto(proto)
 	, upvalues()
 {}
+
+std::string Function::dump() const {
+	std::stringstream buffer;
+	std::unordered_map<const void*, int64_t> cache;
+	std::function<int64_t(const void*)> label = [&](auto ptr) {
+		if (cache.count(ptr) == 0) {
+			cache[ptr] = cache.size();
+		}
+		return cache[ptr];
+	};
+	dump_rec(buffer, label);
+	return buffer.str();
+}
+
+void Function::dump_rec(
+		std::ostream& buffer,
+		std::function<int64_t(const void*)>& label) const
+{
+	buffer << "Function#" << label(this) << std::endl;
+	buffer << "nargs: " << proto->nargs << std::endl;
+	buffer << "nconstants: " << proto->constants.size() << std::endl;
+	buffer << "code:" << std::endl;
+	int addrw = std::log10(proto->code.size()) + 1;
+	for (size_t i = 0; i < proto->code.size(); ++i) {
+		buffer << "  " << std::setfill(' ') << std::setw(addrw) << i << "  ";
+		auto instr = proto->code[i];
+		buffer << instr;
+		if (instr.op == Opcode::GetConst) {
+			buffer << " (";
+			auto& value = proto->constants[instr.arg];
+			value.visit(Overloaded {
+				[&](const Nil&) { buffer << value.inspect(); },
+				[&](const bool&) { buffer << value.inspect(); },
+				[&](const int64_t&) { buffer << value.inspect(); },
+				[&](const Ptr<std::string>&) { buffer << value.inspect(); },
+				[&](const auto& ptr) {
+					auto tmp = value.inspect();
+					buffer << tmp.substr(0, tmp.find('#')) <<
+						"#" << label(ptr.address());
+				}
+			});
+			buffer << ")";
+		}
+		buffer << std::endl;
+	}
+	for (auto& value : proto->constants) {
+		if (value.holds<Ptr<Function>>()) {
+			buffer << std::endl;
+			value.get<Ptr<Function>>()->dump_rec(buffer, label);
+		}
+	}
+}
 
 CppFunction::CppFunction(uint64_t nargs) : nargs(nargs) {}
 
