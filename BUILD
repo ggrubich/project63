@@ -3,7 +3,7 @@ compiler_opts = ["-std=c++17", "-Wall", "-Wextra", "-pedantic-errors"]
 cc_library(
     name = "lib",
     srcs = ["gc.cpp", "value.cpp", "vm.cpp"],
-    hdrs = ["gc.h", "value.h", "variant.h", "vm.h"],
+    hdrs = ["gc.h", "parser.h", "value.h", "variant.h", "vm.h"],
     copts = compiler_opts,
 )
 
