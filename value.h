@@ -206,6 +206,8 @@ struct Context : public Collector {
 	Ptr<Klass> string_cls;
 	Ptr<Klass> function_cls;
 
+	std::unordered_map<std::string, Value> builtins;
+
 	Context();
 };
 
@@ -373,6 +375,7 @@ template<> struct Trace<Context> {
 		t(x.int_cls);
 		t(x.string_cls);
 		t(x.function_cls);
+		Trace<decltype(x.builtins)>{}(x.builtins, t);
 	}
 };
 
