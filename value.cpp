@@ -1,8 +1,9 @@
 #include "value.h"
 
+#include "strings.h"
+
 #include <cmath>
 #include <iomanip>
-#include <ios>
 #include <sstream>
 
 std::ostream& operator<<(std::ostream& s, Opcode op) {
@@ -80,37 +81,13 @@ Ptr<Klass> Value::class_of(Context& ctx) const {
 	});
 }
 
-namespace {
-
-void inspect_string(std::ostream& buf, const std::string& str) {
-	constexpr char escapes[] = {'a', 'b', 't', 'n', 'v', 'f', 'r'};
-	buf << "\"";
-	for (auto c : str) {
-		if ('\a' <= c && c <= '\r') {
-			buf << "\\" << escapes[c - '\a'];
-		}
-		else if (0x00 <= c && c <= 0x1f) {
-			buf << "\\x" << std::setw(2) << std::setfill('0') << std::hex << int(c);
-		}
-		else if (c == '"' || c == '\\') {
-			buf << "\\" << c;
-		}
-		else {
-			buf << c;
-		}
-	}
-	buf << "\"";
-}
-
-}  // namespace annonymous
-
 std::string Value::inspect() const {
 	std::stringstream buf;
 	visit(Overloaded {
 		[&](const Nil&) { buf << "nil"; },
 		[&](const bool& b) { buf << (b ? "true" : "false"); },
 		[&](const int64_t& n) { buf << n; },
-		[&](const Ptr<std::string>& str) { inspect_string(buf, *str); },
+		[&](const Ptr<std::string>& str) { buf << quote_string(*str); },
 		[&](const Ptr<Function>& x) { buf << "Function#" << x.address(); },
 		[&](const Ptr<CppFunction>& x) { buf << "CppFunction#" << x.address(); },
 		[&](const Ptr<Object>& x) { buf << "Object#" << x.address(); },
