@@ -15,8 +15,8 @@ void Compiler::trace(Tracer& t) const {
 	}
 }
 
-Root<Ptr<Function>> Compiler::compile(const BlockExpr& body) {
-	return compile_main(body);
+Root<Ptr<Function>> Compiler::compile(const ExpressionSeq& body) {
+	return compile_main(body.exprs);
 }
 
 void Compiler::push_func() {
@@ -308,16 +308,16 @@ void Compiler::define_variable(const std::string& name) {
 	push_local();
 }
 
-void Compiler::compile_block(const BlockExpr& expr) {
-	if (expr.exprs.size() == 0) {
+void Compiler::compile_block(const std::vector<ExpressionPtr>& exprs) {
+	if (exprs.size() == 0) {
 		compile_nil();
 		return;
 	}
 	push_block();
-	for (auto& x : expr.exprs) {
+	for (auto& x : exprs) {
 		declare_expr(*x);
 	}
-	compile_expr_sequence(expr.exprs);
+	compile_expr_chain(exprs);
 	compile_nip_all();
 	pop_block();
 	push_local();
@@ -428,10 +428,10 @@ void Compiler::compile_lambda(const LambdaExpr& expr) {
 		define_variable(arg);
 	}
 	push_block();
-	for (auto& expr : expr.body.exprs) {
+	for (auto& expr : expr.body) {
 		declare_expr(*expr);
 	}
-	compile_expr_sequence(expr.body.exprs);
+	compile_expr_chain(expr.body);
 	compile_instr(Opcode::Return);
 	// Move the constructed value to the constant.
 	auto value = ctx.alloc<Function>(*ctx.alloc(std::move(peek_proto())));
@@ -537,7 +537,7 @@ void Compiler::compile_expr(const Expression& expr) {
 			compile_send(expr);
 		},
 		[&](const BlockExpr& expr) {
-			compile_block(expr);
+			compile_block(expr.exprs);
 		},
 		[&](const IfExpr& expr) {
 			compile_if(expr);
@@ -569,7 +569,7 @@ void Compiler::compile_expr(const Expression& expr) {
 	});
 }
 
-void Compiler::compile_expr_sequence(const std::vector<ExpressionPtr>& exprs) {
+void Compiler::compile_expr_chain(const std::vector<ExpressionPtr>& exprs) {
 	if (exprs.size() == 0) {
 		compile_nil();
 		return;
@@ -583,7 +583,7 @@ void Compiler::compile_expr_sequence(const std::vector<ExpressionPtr>& exprs) {
 	}
 }
 
-Root<Ptr<Function>> Compiler::compile_main(const BlockExpr& body) {
+Root<Ptr<Function>> Compiler::compile_main(const std::vector<ExpressionPtr>& body) {
 	push_func();
 	peek_proto().nargs = 0;
 	push_block();
@@ -592,10 +592,10 @@ Root<Ptr<Function>> Compiler::compile_main(const BlockExpr& body) {
 		pop_local();
 		define_variable(x.first);
 	}
-	for (auto& expr : body.exprs) {
+	for (auto& expr : body) {
 		declare_expr(*expr);
 	}
-	compile_expr_sequence(body.exprs);
+	compile_expr_chain(body);
 	compile_instr(Opcode::Return);
 	auto main = ctx.alloc<Function>(*ctx.alloc(std::move(peek_proto())));
 	pop_func();

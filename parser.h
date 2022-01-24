@@ -25,26 +25,26 @@ struct SendExpr { ExpressionPtr obj; std::string msg; };
 
 struct BlockExpr { std::vector<ExpressionPtr> exprs; };
 struct IfExpr {
-	std::vector<std::pair<ExpressionPtr, BlockExpr>> branches;
-	std::optional<BlockExpr> otherwise;
+	std::vector<std::pair<ExpressionPtr, std::vector<ExpressionPtr>>> branches;
+	std::optional<std::vector<ExpressionPtr>> otherwise;
 };
 struct WhileExpr {
 	ExpressionPtr cond;
-	BlockExpr body;
+	std::vector<ExpressionPtr> body;
 };
 struct TryExpr {
-	BlockExpr body;
+	std::vector<ExpressionPtr> body;
 	std::string error;
-	BlockExpr handler;
+	std::vector<ExpressionPtr> handler;
 };
 
 struct LambdaExpr {
 	std::vector<std::string> args;
-	BlockExpr body;
+	std::vector<ExpressionPtr> body;
 };
 struct MethodExpr {
 	std::optional<std::vector<std::string>> args;
-	BlockExpr body;
+	std::vector<ExpressionPtr> body;
 };
 
 struct BreakExpr {};
@@ -81,4 +81,8 @@ struct Expression : Variant<
 	ThrowExpr
 > {
 	using Variant::Variant;
+};
+
+struct ExpressionSeq {
+	std::vector<ExpressionPtr> exprs;
 };

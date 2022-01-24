@@ -50,7 +50,7 @@ TEST(CompilerTest, RecursiveFunctions) {
 	Context ctx;
 	init_builtins(ctx);
 
-	auto body = BlockExpr{std::vector{
+	auto body = ExpressionSeq{{
 		make_expr<LetExpr>("main", make_expr<LambdaExpr>(
 			std::vector<std::string>{},
 			std::vector{
@@ -74,9 +74,9 @@ TEST(CompilerTest, RecursiveFunctions) {
 								make_expr<IntExpr>(0)
 							}
 						),
-						BlockExpr{{
+						std::vector{
 							make_expr<ReturnExpr>(make_expr<IntExpr>(0))
-						}}
+						}
 					}},
 					std::nullopt
 				),
@@ -117,11 +117,11 @@ TEST(CompilerTest, RecursiveFunctions) {
 								make_expr<VariableExpr>("n")
 							}
 						),
-						BlockExpr{{
+						std::vector{
 							make_expr<IntExpr>(1)
-						}}
+						}
 					}},
-					std::optional(BlockExpr{{
+					std::optional{std::vector{
 						make_expr<CallExpr>(
 							make_expr<VariableExpr>("+"),
 							std::vector{
@@ -140,7 +140,7 @@ TEST(CompilerTest, RecursiveFunctions) {
 								make_expr<IntExpr>(1)
 							}
 						)
-					}})
+					}}
 				)
 
 			}
@@ -179,7 +179,7 @@ TEST(CompilerTest, TryCatch) {
 	Context ctx;
 	init_builtins(ctx);
 
-	auto body = BlockExpr{{
+	auto body = ExpressionSeq{{
 		make_expr<TryExpr>(
 			std::vector{
 				make_expr<TryExpr>(
@@ -234,7 +234,7 @@ TEST(CompilerTest, NestedBlocks) {
 	Context ctx;
 	init_builtins(ctx);
 
-	auto body = BlockExpr{{
+	auto body = ExpressionSeq{{
 		make_expr<BlockExpr>(std::vector{
 			make_expr<LetExpr>("x", make_expr<IntExpr>(2)),
 			make_expr<LetExpr>("y", make_expr<IntExpr>(10)),
@@ -296,7 +296,7 @@ TEST(CompilerTest, FibIter) {
 	Context ctx;
 	init_builtins(ctx);
 
-	auto body = BlockExpr{{
+	auto body = ExpressionSeq{{
 		make_expr<LetExpr>("fib", make_expr<LambdaExpr>(
 			std::vector<std::string>{"n"},
 			std::vector{
@@ -384,7 +384,7 @@ TEST(CompilerTest, BreakContinue) {
 	Context ctx;
 	init_builtins(ctx);
 
-	auto body = BlockExpr{{
+	auto body = ExpressionSeq{{
 		make_expr<LetExpr>("x", make_expr<IntExpr>(0)),
 		make_expr<LetExpr>("i", make_expr<IntExpr>(0)),
 		make_expr<WhileExpr>(make_expr<VariableExpr>("true"), std::vector{
@@ -400,7 +400,7 @@ TEST(CompilerTest, BreakContinue) {
 								make_expr<IntExpr>(3)
 							}
 						),
-						BlockExpr{{ make_expr<BreakExpr>() }}
+						std::vector{make_expr<BreakExpr>()}
 					}},
 					std::nullopt
 				),
@@ -423,11 +423,11 @@ TEST(CompilerTest, BreakContinue) {
 							make_expr<IntExpr>(10)
 						}
 					),
-					BlockExpr{{
+					std::vector{
 						make_expr<BreakExpr>()
-					}}
+					}
 				}},
-				std::optional{BlockExpr{{
+				std::optional{std::vector{
 					make_expr<AssignExpr>("i", make_expr<CallExpr>(
 						make_expr<VariableExpr>("+"),
 						std::vector{
@@ -436,7 +436,7 @@ TEST(CompilerTest, BreakContinue) {
 						}
 					)),
 					make_expr<ContinueExpr>()
-				}}}
+				}}
 			),
 
 			make_expr<ReturnExpr>(make_expr<IntExpr>(0))
@@ -473,7 +473,7 @@ TEST(CompilerTest, ClosureCounter) {
 	Context ctx;
 	init_builtins(ctx);
 
-	auto body = BlockExpr{{
+	auto body = ExpressionSeq{{
 		make_expr<LetExpr>("init", make_expr<IntExpr>(0)),
 		make_expr<LetExpr>("inc", make_expr<IntExpr>(1)),
 

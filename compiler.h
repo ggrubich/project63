@@ -56,7 +56,7 @@ public:
 	void trace(Tracer& t) const;
 
 	// Compiles a sequence of expressions into an executable function.
-	Root<Ptr<Function>> compile(const BlockExpr& body);
+	Root<Ptr<Function>> compile(const ExpressionSeq& body);
 
 private:
 	void push_func();
@@ -100,7 +100,7 @@ private:
 	void declare_expr(const Expression& expr);
 	void define_variable(const std::string& name);
 
-	void compile_block(const BlockExpr& expr);
+	void compile_block(const std::vector<ExpressionPtr>& exprs);
 	void compile_if(const IfExpr& expr);
 	void compile_while(const WhileExpr& expr);
 	void compile_try(const TryExpr& expr);
@@ -114,9 +114,9 @@ private:
 	void compile_throw(const ThrowExpr& expr);
 
 	void compile_expr(const Expression& expr);
-	void compile_expr_sequence(const std::vector<ExpressionPtr>& exprs);
+	void compile_expr_chain(const std::vector<ExpressionPtr>& exprs);
 
-	Root<Ptr<Function>> compile_main(const BlockExpr& body);
+	Root<Ptr<Function>> compile_main(const std::vector<ExpressionPtr>& body);
 };
 
 template<> struct Trace<Compiler> {
