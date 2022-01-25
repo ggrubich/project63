@@ -5,6 +5,7 @@ cc_library(
     srcs = [
         "compiler.cpp",
         "gc.cpp",
+        "parser.cpp",
         "strings.cpp",
         "value.cpp",
         "vm.cpp"

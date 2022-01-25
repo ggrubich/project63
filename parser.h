@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <ostream>
 
 struct Expression;
 
@@ -83,6 +84,16 @@ struct Expression : Variant<
 	using Variant::Variant;
 };
 
+std::ostream& operator<<(std::ostream& s, const Expression& expr);
+
+bool operator==(const Expression& e1, const Expression& e2);
+bool operator!=(const Expression& e1, const Expression& e2);
+
 struct ExpressionSeq {
 	std::vector<ExpressionPtr> exprs;
 };
+
+std::ostream& operator<<(std::ostream& s, const ExpressionSeq& seq);
+
+bool operator==(const ExpressionSeq& e1, const ExpressionSeq& e2);
+bool operator!=(const ExpressionSeq& e1, const ExpressionSeq& e2);
