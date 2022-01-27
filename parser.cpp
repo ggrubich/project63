@@ -81,6 +81,19 @@ std::ostream& show_expr(std::ostream& s, Indent indent, const Expression& expr) 
 			s << (indent+1) << expr.msg << ",\n";
 			s << indent << "}";
 		},
+		[&](const UnaryExpr& expr) {
+			s << indent << "Unary{\n";
+			s << (indent+1) << expr.op << ",\n";
+			show_expr(s, indent+1, *expr.value) << ",\n";
+			s << indent << "}";
+		},
+		[&](const BinaryExpr& expr) {
+			s << indent << "Binary{\n";
+			s << (indent+1) << expr.op << ",\n";
+			show_expr(s, indent+1, *expr.lhs) << ",\n";
+			show_expr(s, indent+1, *expr.rhs) << ",\n";
+			s << indent << "}";
+		},
 
 		[&](const BlockExpr& expr) {
 			s << indent << "Block{\n";
@@ -236,6 +249,12 @@ bool operator==(const Expression& e1, const Expression& e2) {
 		},
 		[](const SendExpr& x, const SendExpr& y) {
 			return (*x.obj == *y.obj) && x.msg == y.msg;
+		},
+		[](const UnaryExpr& x, const UnaryExpr& y) {
+			return x.op == y.op && (*x.value == *y.value);
+		},
+		[](const BinaryExpr& x, const BinaryExpr& y) {
+			return x.op == y.op && (*x.lhs == *y.lhs) && (*x.rhs == *y.rhs);
 		},
 		[](const BlockExpr& x, const BlockExpr& y) {
 			return all_equal(x.exprs, y.exprs);

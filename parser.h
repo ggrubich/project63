@@ -23,6 +23,8 @@ struct SetPropExpr { ExpressionPtr obj; std::string name; ExpressionPtr value; }
 
 struct CallExpr { ExpressionPtr func; std::vector<ExpressionPtr> args; };
 struct SendExpr { ExpressionPtr obj; std::string msg; };
+struct UnaryExpr { std::string op; ExpressionPtr value; };
+struct BinaryExpr { std::string op; ExpressionPtr lhs; ExpressionPtr rhs; };
 
 struct BlockExpr { std::vector<ExpressionPtr> exprs; };
 struct IfExpr {
@@ -67,6 +69,8 @@ struct Expression : Variant<
 
 	CallExpr,
 	SendExpr,
+	UnaryExpr,
+	BinaryExpr,
 
 	BlockExpr,
 	IfExpr,

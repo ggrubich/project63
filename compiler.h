@@ -96,6 +96,8 @@ private:
 
 	void compile_call(const CallExpr& expr);
 	void compile_send(const SendExpr& expr);
+	void compile_unary(const UnaryExpr& expr);
+	void compile_binary(const BinaryExpr& expr);
 
 	void declare_expr(const Expression& expr);
 	void define_variable(const std::string& name);

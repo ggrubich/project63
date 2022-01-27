@@ -254,6 +254,17 @@ void Compiler::compile_send(const SendExpr& expr) {
 	pop_local();
 }
 
+void Compiler::compile_unary(const UnaryExpr& expr) {
+	compile_send(SendExpr{expr.value, expr.op});
+}
+
+void Compiler::compile_binary(const BinaryExpr& expr) {
+	compile_call(CallExpr{
+		std::make_shared<Expression>(SendExpr{expr.lhs, expr.op}),
+		std::vector{expr.rhs}
+	});
+}
+
 void Compiler::declare_expr(const Expression& expr) {
 	expr.visit(Overloaded {
 		[](const StringExpr&) {},
@@ -285,6 +296,13 @@ void Compiler::declare_expr(const Expression& expr) {
 		},
 		[&](const SendExpr& expr) {
 			declare_expr(*expr.obj);
+		},
+		[&](const UnaryExpr& expr) {
+			declare_expr(*expr.value);
+		},
+		[&](const BinaryExpr& expr) {
+			declare_expr(*expr.lhs);
+			declare_expr(*expr.rhs);
 		},
 		[](const BlockExpr&) {},
 		[](const IfExpr&) {},
@@ -535,6 +553,12 @@ void Compiler::compile_expr(const Expression& expr) {
 		},
 		[&](const SendExpr& expr) {
 			compile_send(expr);
+		},
+		[&](const UnaryExpr& expr) {
+			compile_unary(expr);
+		},
+		[&](const BinaryExpr& expr) {
+			compile_binary(expr);
 		},
 		[&](const BlockExpr& expr) {
 			compile_block(expr.exprs);
