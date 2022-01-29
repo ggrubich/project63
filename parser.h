@@ -108,6 +108,10 @@ std::ostream& operator<<(std::ostream& s, const ExpressionSeq& seq);
 bool operator==(const ExpressionSeq& e1, const ExpressionSeq& e2);
 bool operator!=(const ExpressionSeq& e1, const ExpressionSeq& e2);
 
+// Parses a sequence of expressions from a string.
+// Throws a runtime_error on failure.
+ExpressionSeq parse_expr_seq(const std::string_view& input);
+
 // Implementations
 
 template<typename T, typename... Args>

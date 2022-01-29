@@ -35,6 +35,7 @@ cc_test(
     srcs = [
         "compiler_test.cpp",
         "gc_test.cpp",
+        "parser_test.cpp",
         "strings_test.cpp",
         "value_test.cpp",
         "vm_test.cpp"
