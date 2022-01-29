@@ -260,7 +260,7 @@ void Compiler::compile_unary(const UnaryExpr& expr) {
 
 void Compiler::compile_binary(const BinaryExpr& expr) {
 	compile_call(CallExpr{
-		std::make_shared<Expression>(SendExpr{expr.lhs, expr.op}),
+		make_expr<SendExpr>(expr.lhs, expr.op),
 		std::vector{expr.rhs}
 	});
 }
@@ -464,7 +464,7 @@ void Compiler::compile_method(const MethodExpr& expr) {
 		lambda = LambdaExpr{
 			std::vector<std::string>{"self"},
 			std::vector{
-				std::make_shared<Expression>(LambdaExpr{*expr.args, expr.body})
+				make_expr<LambdaExpr>(*expr.args, expr.body)
 			}
 		};
 	}

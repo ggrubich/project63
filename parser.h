@@ -88,6 +88,12 @@ struct Expression : Variant<
 	using Variant::Variant;
 };
 
+// Helper function for allocating ExpressionPtr values.
+template<typename T, typename... Args>
+ExpressionPtr make_expr(Args&&... args);
+template<typename T>
+ExpressionPtr make_expr(T&& x);
+
 std::ostream& operator<<(std::ostream& s, const Expression& expr);
 
 bool operator==(const Expression& e1, const Expression& e2);
@@ -101,3 +107,15 @@ std::ostream& operator<<(std::ostream& s, const ExpressionSeq& seq);
 
 bool operator==(const ExpressionSeq& e1, const ExpressionSeq& e2);
 bool operator!=(const ExpressionSeq& e1, const ExpressionSeq& e2);
+
+// Implementations
+
+template<typename T, typename... Args>
+ExpressionPtr make_expr(Args&&... args) {
+	return std::make_shared<Expression>(T{std::forward<Args>(args)...});
+}
+
+template<typename T>
+ExpressionPtr make_expr(T&& x) {
+	return std::make_shared<Expression>(std::forward<T>(x));
+}

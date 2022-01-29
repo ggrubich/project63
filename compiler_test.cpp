@@ -22,11 +22,6 @@ void init_builtins(Context& ctx) {
 	ctx.builtins["-"] = *make_binary(ctx, std::minus<int64_t>{});
 }
 
-template<typename T, typename... Args>
-ExpressionPtr make_expr(Args&&... args) {
-	return std::make_shared<Expression>(T{std::forward<Args>(args)...});
-}
-
 TEST(CompilerTest, RecursiveFunctions) {
 	// fn main() {
 	//     ping(10)
