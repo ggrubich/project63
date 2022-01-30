@@ -525,3 +525,41 @@ TEST(CompilerTest, ClosureCounter) {
 	auto result = vm->run(*main)->get<int64_t>();
 	EXPECT_EQ(result, 3) << "Evaluation result is wrong";
 }
+
+TEST(CompilerTest, BreakFromTryBlock) {
+	// while true {
+	//     try {
+	//         break
+	//     }
+	//     catch x {
+	//         throw 2
+	//     }
+	// };
+	// throw 1
+
+	Context ctx;
+	init_builtins(ctx);
+
+	auto body = ExpressionSeq{{
+		make_expr<WhileExpr>(
+			make_expr<VariableExpr>("true"),
+			std::vector{make_expr<TryExpr>(
+				std::vector{make_expr<BreakExpr>()},
+				"x",
+				std::vector{make_expr<ThrowExpr>(make_expr<IntExpr>(2))}
+			)}
+		),
+		make_expr<ThrowExpr>(make_expr<IntExpr>(1))
+	}};
+
+	auto compiler = ctx.root(Compiler(ctx));
+	auto main = compiler->compile(body);
+	auto vm = ctx.root(VM(ctx));
+	try {
+		vm->run(*main);
+		EXPECT_FALSE(true) << "Main didn't throw";
+	}
+	catch (const Root<Value>& err) {
+		EXPECT_EQ(err->get<int64_t>(), 1);
+	}
+}

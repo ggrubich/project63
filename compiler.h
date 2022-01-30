@@ -21,6 +21,8 @@ struct LoopEnv {
 struct BlockEnv {
 	// Index of the first local used by the block.
 	size_t bottom;
+	// Number of exception handlers currently active in this block.
+	size_t handlers;
 	// Local variables and their stack indices.
 	// Definitions contain the currently accessible variables.
 	// Declaration are predeclared variables intended for future use.
@@ -35,7 +37,7 @@ struct BlockEnv {
 struct FunctionEnv {
 	FunctionProto proto;
 	// Number of values on function's data stack.
-	size_t nlocals;
+	size_t locals;
 	// Lexical blocks, from outermost to innermost.
 	std::vector<BlockEnv> blocks;
 	// Available upvalues and their indices.
@@ -73,10 +75,11 @@ private:
 	void compile_instr(Opcode op);
 	void compile_instr(Opcode op, uint32_t arg);
 
-	void compile_pop(size_t n);
-	void compile_nip(size_t n);
-	void compile_pop_all();
-	void compile_nip_all();
+	void compile_pop();
+	void compile_nip();
+	void compile_pop_all(size_t nblocks = 1);
+	void compile_nip_all(size_t nblocks = 1);
+	void compile_uncatch_all(size_t nblocks = 1);
 
 	void compile_constant(const Value& value);
 	void compile_string(const std::string& str);
@@ -110,6 +113,7 @@ private:
 	void compile_lambda(const LambdaExpr& expr);
 	void compile_method(const MethodExpr& expr);
 
+	void compile_loop_control(bool cont);
 	void compile_break(const BreakExpr&);
 	void compile_continue(const ContinueExpr&);
 	void compile_return(const ReturnExpr& expr);

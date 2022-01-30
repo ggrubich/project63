@@ -38,13 +38,14 @@ FunctionProto& Compiler::peek_proto() {
 void Compiler::push_block() {
 	auto& func = peek_func();
 	detail::BlockEnv block;
-	block.bottom = func.nlocals;
+	block.bottom = func.locals;
+	block.handlers = 0;
 	func.blocks.push_back(block);
 }
 
 void Compiler::pop_block() {
 	auto& func = peek_func();
-	func.nlocals = func.blocks.back().bottom;
+	func.locals = func.blocks.back().bottom;
 	func.blocks.pop_back();
 }
 
@@ -53,11 +54,11 @@ detail::BlockEnv& Compiler::peek_block() {
 }
 
 void Compiler::push_local() {
-	functions.back().nlocals += 1;
+	functions.back().locals += 1;
 }
 
 void Compiler::pop_local() {
-	functions.back().nlocals -= 1;
+	functions.back().locals -= 1;
 }
 
 size_t Compiler::get_address() {
@@ -72,24 +73,42 @@ void Compiler::compile_instr(Opcode op, uint32_t arg) {
 	peek_proto().code.push_back(Instruction(op, arg));
 }
 
-void Compiler::compile_pop(size_t n) {
-	for (size_t i = 0; i < n; ++i) {
-		compile_instr(Opcode::Pop);
+void Compiler::compile_pop() {
+	compile_instr(Opcode::Pop);
+}
+
+void Compiler::compile_nip() {
+	compile_instr(Opcode::Nip);
+}
+
+void Compiler::compile_pop_all(size_t nblocks) {
+	if (nblocks > 0) {
+		auto& func = peek_func();
+		size_t n = func.locals - (func.blocks.end() - nblocks)->bottom;
+		while (n-- > 0) {
+			compile_pop();
+		}
 	}
 }
 
-void Compiler::compile_nip(size_t n) {
-	for (size_t i = 0; i < n; ++i) {
-		compile_instr(Opcode::Nip);
+void Compiler::compile_nip_all(size_t nblocks) {
+	if (nblocks > 0) {
+		auto& func = peek_func();
+		size_t n = func.locals - (func.blocks.end() - nblocks)->bottom - 1;
+		while (n-- > 0) {
+			compile_nip();
+		}
 	}
 }
 
-void Compiler::compile_pop_all() {
-	compile_pop(peek_func().nlocals - peek_block().bottom);
-}
-
-void Compiler::compile_nip_all() {
-	compile_nip(peek_func().nlocals - peek_block().bottom - 1);
+void Compiler::compile_uncatch_all(size_t nblocks) {
+	auto& func = peek_func();
+	auto end = func.blocks.rbegin() + nblocks;
+	for (auto it = func.blocks.rbegin(); it != end; ++it) {
+		for (size_t i = 0; i < it->handlers; ++i) {
+			compile_instr(Opcode::Uncatch);
+		}
+	}
 }
 
 void Compiler::compile_constant(const Value& value) {
@@ -274,7 +293,7 @@ void Compiler::declare_expr(const Expression& expr) {
 		[&](const LetExpr& expr) {
 			declare_expr(*expr.value);
 			peek_block().declarations[expr.name].push_back(
-				peek_func().nlocals
+				peek_func().locals
 			);
 			compile_nil();
 		},
@@ -322,7 +341,7 @@ void Compiler::declare_expr(const Expression& expr) {
 }
 
 void Compiler::define_variable(const std::string& name) {
-	peek_block().definitions[name] = peek_func().nlocals;
+	peek_block().definitions[name] = peek_func().locals;
 	push_local();
 }
 
@@ -392,7 +411,7 @@ void Compiler::compile_while(const WhileExpr& expr) {
 	// and jump to the start.
 	peek_block().loop = detail::LoopEnv{};
 	compile_block(expr.body);
-	compile_pop(1);
+	compile_pop();
 	pop_local();
 	for (auto jump : peek_block().loop->continue_jumps) {
 		// (continues join here)
@@ -415,8 +434,10 @@ void Compiler::compile_try(const TryExpr& expr) {
 	// Set up the handler, evaluate the body.
 	size_t handler_jump = get_address();
 	compile_instr(Opcode::Catch, -1);
+	peek_block().handlers += 1;
 	compile_block(expr.body);
 	compile_instr(Opcode::Uncatch);
+	peek_block().handlers -= 1;
 	// If no errors were thrown, jump to the end.
 	size_t finish_jump = get_address();
 	compile_instr(Opcode::Jump, -1);
@@ -480,7 +501,7 @@ void Compiler::compile_method(const MethodExpr& expr) {
 // dead code altogether and not deal with it, but this solution should
 // be okay for now.
 
-void Compiler::compile_break(const BreakExpr&) {
+void Compiler::compile_loop_control(bool cont) {
 	auto& func = peek_func();
 	auto loop_block = std::find_if(
 		func.blocks.rbegin(),
@@ -488,28 +509,27 @@ void Compiler::compile_break(const BreakExpr&) {
 		[&](auto& x) { return bool(x.loop); }
 	);
 	if (loop_block == func.blocks.rend()) {
-		throw std::runtime_error("Break can only be used inside of a loop");
+		throw std::runtime_error("Break and continue can only be used inside of a loop");
 	}
-	compile_pop(func.nlocals - (loop_block-1)->bottom);
-	loop_block->loop->break_jumps.push_back(get_address());
+	size_t nblocks = loop_block - func.blocks.rbegin();
+	compile_pop_all(nblocks);
+	compile_uncatch_all(nblocks);
+	if (cont) {
+		loop_block->loop->continue_jumps.emplace_back(get_address());
+	}
+	else {
+		loop_block->loop->break_jumps.emplace_back(get_address());
+	}
 	compile_instr(Opcode::Jump, -1);
 	push_local();
 }
 
+void Compiler::compile_break(const BreakExpr&) {
+	compile_loop_control(false);
+}
+
 void Compiler::compile_continue(const ContinueExpr&) {
-	auto& func = peek_func();
-	auto loop_block = std::find_if(
-		func.blocks.rbegin(),
-		func.blocks.rend(),
-		[&](auto& x) { return bool(x.loop); }
-	);
-	if (loop_block == func.blocks.rend()) {
-		throw std::runtime_error("Continue can only be used inside of a loop");
-	}
-	compile_pop(func.nlocals - (loop_block-1)->bottom);
-	loop_block->loop->continue_jumps.push_back(get_address());
-	compile_instr(Opcode::Jump, -1);
-	push_local();
+	compile_loop_control(true);
 }
 
 void Compiler::compile_return(const ReturnExpr& expr) {
@@ -601,7 +621,7 @@ void Compiler::compile_expr_chain(const std::vector<ExpressionPtr>& exprs) {
 	auto it = exprs.begin();
 	compile_expr(**it);
 	for (++it; it != exprs.end(); ++it) {
-		compile_pop(1);
+		compile_pop();
 		pop_local();
 		compile_expr(**it);
 	}
