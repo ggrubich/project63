@@ -335,7 +335,9 @@ void Compiler::declare_expr(const Expression& expr) {
 		[](const LambdaExpr&) {},
 		[](const MethodExpr&) {},
 		[&](const ReturnExpr& expr) {
-			declare_expr(*expr.value);
+			if (expr.value) {
+				declare_expr(**expr.value);
+			}
 		},
 		[](const BreakExpr&) {},
 		[](const ContinueExpr&) {},
@@ -580,7 +582,12 @@ void Compiler::compile_continue(const ContinueExpr&) {
 }
 
 void Compiler::compile_return(const ReturnExpr& expr) {
-	compile_expr(*expr.value);
+	if (expr.value) {
+		compile_expr(**expr.value);
+	}
+	else {
+		compile_nil();
+	}
 	compile_instr(Opcode::Return);
 }
 

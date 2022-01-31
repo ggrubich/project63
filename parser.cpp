@@ -201,9 +201,14 @@ std::ostream& show_expr(std::ostream& s, Indent indent, const Expression& expr) 
 			s << indent << "Continue{}";
 		},
 		[&](const ReturnExpr& expr) {
-			s << indent << "Return{\n";
-			show_expr(s, indent+1, *expr.value) << "\n";
-			s << indent << "}";
+			if (expr.value) {
+				s << indent << "Return{\n";
+				show_expr(s, indent+1, **expr.value) << "\n";
+				s << indent << "}";
+			}
+			else {
+				s << indent << "Return{}";
+			}
 		},
 		[&](const ThrowExpr& expr) {
 			s << indent << "Throw{\n";
@@ -308,7 +313,10 @@ bool operator==(const Expression& e1, const Expression& e2) {
 		},
 		[](const BreakExpr&, const BreakExpr&) { return true; },
 		[](const ContinueExpr&, const ContinueExpr&) { return true; },
-		[](const ReturnExpr& x, const ReturnExpr& y) { return *x.value == *y.value; },
+		[](const ReturnExpr& x, const ReturnExpr& y) {
+			return (!x.value && !y.value) ||
+				(x.value && y.value && (**x.value == **y.value));
+		},
 		[](const ThrowExpr& x, const ThrowExpr& y) { return *x.value == *y.value; },
 		[](const auto&, const auto&) { return false; }
 	}, e1.inner, e2.inner);
@@ -782,8 +790,21 @@ ExpressionPtr Parser::parse_method() {
 
 ExpressionPtr Parser::parse_return() {
 	expect(tokens.next(), TokenType::Return, "return");
-	auto value = parse_expr();
-	return make_expr<ReturnExpr>(value);
+	auto tok = tokens.peek();
+	try {
+		auto value = parse_expr();
+		return make_expr<ReturnExpr>(value);
+	}
+	catch (std::runtime_error err) {
+		// If parse_expr failed without consuming any tokens, we are dealing
+		// with an empty return.
+		if (tokens.peek().str.data() == tok.str.data()) {
+			return make_expr<ReturnExpr>(std::nullopt);
+		}
+		else {
+			throw err;
+		}
+	}
 }
 
 ExpressionPtr Parser::parse_throw() {

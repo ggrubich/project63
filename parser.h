@@ -54,7 +54,7 @@ struct MethodExpr {
 
 struct BreakExpr {};
 struct ContinueExpr {};
-struct ReturnExpr { ExpressionPtr value; };
+struct ReturnExpr { std::optional<ExpressionPtr> value; };
 struct ThrowExpr { ExpressionPtr value; };
 
 struct Expression : Variant<

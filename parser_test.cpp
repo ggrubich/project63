@@ -155,7 +155,7 @@ TEST(ParserTest, Procedures) {
 		"fn() { return 13; };"
 		"fn(x, y, z) { 3 };"
 		"method { self@x };"
-		"method() { return self };"
+		"method() { return };"
 		"method(x, y,) { x }";
 	auto expected = ExpressionSeq{{
 		make_expr<LambdaExpr>(std::vector<std::string>{}, std::vector{
@@ -172,7 +172,7 @@ TEST(ParserTest, Procedures) {
 		),
 		make_expr<MethodExpr>(
 			std::vector<std::string>{},
-			std::vector{make_expr<ReturnExpr>(make_expr<VariableExpr>("self"))}
+			std::vector{make_expr<ReturnExpr>(std::nullopt)}
 		),
 		make_expr<MethodExpr>(
 			std::vector<std::string>{"x", "y"},
