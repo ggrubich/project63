@@ -25,6 +25,19 @@ TEST(ParserTest, Variables) {
 	EXPECT_EQ(actual, expected);
 }
 
+TEST(ParserTest, Comments) {
+	std::string_view input =
+		"13// comment //\n"
+		"// second comment\n"
+		"; test // eof";
+	auto expected = ExpressionSeq{{
+		make_expr<IntExpr>(13),
+		make_expr<VariableExpr>("test"),
+	}};
+	auto actual = parse_expr_seq(input);
+	EXPECT_EQ(actual, expected);
+}
+
 TEST(ParserTest, Blocks) {
 	std::string_view input =
 		"{};"

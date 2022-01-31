@@ -512,8 +512,20 @@ bool is_ident_special(char c) {
 }
 
 Token Tokenizer::peek() {
-	while (std::isspace(following(0))) {
-		++position;
+	// whitespace and comments
+	while (true) {
+		while (std::isspace(following(0))) {
+			++position;
+		}
+		if (!starts_with(remaining(), "//")) {
+			break;
+		}
+		else {
+			position += 2;
+			while (following(0) != '\0' && following(0) != '\n') {
+				++position;
+			}
+		}
 	}
 	if (position >= input.size()) {
 		return Token{TokenType::Eof, ""};
