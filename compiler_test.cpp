@@ -16,6 +16,7 @@ Root<Ptr<CppFunction>> make_binary(Context& ctx, F func) {
 
 void init_builtins(Context& ctx) {
 	ctx.builtins["true"] = Value(true);
+	ctx.builtins["false"] = Value(false);
 	ctx.builtins["=="] = *make_binary(ctx, std::equal_to<int64_t>{});
 	ctx.builtins["!="] = *make_binary(ctx, std::not_equal_to<int64_t>{});
 	ctx.builtins["+"] = *make_binary(ctx, std::plus<int64_t>{});
@@ -562,4 +563,37 @@ TEST(CompilerTest, BreakFromTryBlock) {
 	catch (const Root<Value>& err) {
 		EXPECT_EQ(err->get<int64_t>(), 1);
 	}
+}
+
+TEST(CompilerTest, ShortCircuitLogic) {
+	// true || throw 1;
+	// false && throw 2;
+	// false || (true && true)
+
+	Context ctx;
+	init_builtins(ctx);
+
+	auto body = ExpressionSeq{{
+		make_expr<OrExpr>(
+			make_expr<VariableExpr>("true"),
+			make_expr<ThrowExpr>(make_expr<IntExpr>(1))
+		),
+		make_expr<AndExpr>(
+			make_expr<VariableExpr>("false"),
+			make_expr<ThrowExpr>(make_expr<IntExpr>(2))
+		),
+		make_expr<OrExpr>(
+			make_expr<VariableExpr>("false"),
+			make_expr<AndExpr>(
+				make_expr<VariableExpr>("true"),
+				make_expr<VariableExpr>("true")
+			)
+		),
+	}};
+
+	auto compiler = ctx.root(Compiler(ctx));
+	auto main = compiler->compile(body);
+	auto vm = ctx.root(VM(ctx));
+	auto result = vm->run(*main)->get<bool>();
+	EXPECT_EQ(result, true);
 }

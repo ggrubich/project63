@@ -97,6 +97,18 @@ std::ostream& show_expr(std::ostream& s, Indent indent, const Expression& expr) 
 			show_expr(s, indent+1, *expr.rhs) << ",\n";
 			s << indent << "}";
 		},
+		[&](const AndExpr& expr) {
+			s << indent << "And{\n";
+			show_expr(s, indent+1, *expr.lhs) << ",\n";
+			show_expr(s, indent+1, *expr.rhs) << ",\n";
+			s << indent << "}";
+		},
+		[&](const OrExpr& expr) {
+			s << indent << "Or{\n";
+			show_expr(s, indent+1, *expr.lhs) << ",\n";
+			show_expr(s, indent+1, *expr.rhs) << ",\n";
+			s << indent << "}";
+		},
 
 		[&](const BlockExpr& expr) {
 			s << indent << "Block{\n";
@@ -259,6 +271,12 @@ bool operator==(const Expression& e1, const Expression& e2) {
 		[](const BinaryExpr& x, const BinaryExpr& y) {
 			return x.op == y.op && (*x.lhs == *y.lhs) && (*x.rhs == *y.rhs);
 		},
+		[](const AndExpr& x, const AndExpr& y) {
+			return (*x.lhs == *y.lhs) && (*x.rhs == *y.rhs);
+		},
+		[](const OrExpr& x, const OrExpr& y) {
+			return (*x.lhs == *y.lhs) && (*x.rhs == *y.rhs);
+		},
 		[](const BlockExpr& x, const BlockExpr& y) {
 			return all_equal(x.exprs, y.exprs);
 		},
@@ -346,6 +364,8 @@ enum class TokenType {
 	Semicolon,  // ;
 	LParen,     // (
 	RParen,     // )
+	And,        // &&
+	Or,         // ||
 };
 
 struct Token {
@@ -382,6 +402,8 @@ std::ostream& operator<<(std::ostream& s, TokenType type) {
 	case TokenType::Semicolon:  s << "semicolon (;)"; break;
 	case TokenType::LParen:     s << "left parenthesis (()"; break;
 	case TokenType::RParen:     s << "right parenthesis ())"; break;
+	case TokenType::And:        s << "and operator (&&)"; break;
+	case TokenType::Or:         s << "or operator (||)"; break;
 	}
 	return s;
 }
@@ -427,6 +449,8 @@ constexpr auto known_symbols = std::array{
 	std::pair{";"sv, TokenType::Semicolon},
 	std::pair{"("sv, TokenType::LParen},
 	std::pair{")"sv, TokenType::RParen},
+	std::pair{"&&"sv, TokenType::And},
+	std::pair{"||"sv, TokenType::Or},
 
 	std::pair{"+"sv,  TokenType::Operator},
 	std::pair{"-"sv,  TokenType::Operator},
@@ -894,10 +918,25 @@ ExpressionPtr Parser::parse_unary_expr() {
 
 ExpressionPtr Parser::parse_expr() {
 	auto result = parse_unary_expr();
-	while (tokens.peek().type == TokenType::Operator) {
+	while (tokens.peek().type == TokenType::Operator ||
+			tokens.peek().type == TokenType::And ||
+			tokens.peek().type == TokenType::Or)
+	{
 		auto tok = tokens.next();
 		auto rhs = parse_unary_expr();
-		result = make_expr<BinaryExpr>(std::string(tok.str), result, rhs);
+		switch (tok.type) {
+		case TokenType::Operator:
+			result = make_expr<BinaryExpr>(std::string(tok.str), result, rhs);
+			break;
+		case TokenType::And:
+			result = make_expr<AndExpr>(result, rhs);
+			break;
+		case TokenType::Or:
+			result = make_expr<OrExpr>(result, rhs);
+			break;
+		default:
+			break;
+		}
 	}
 	return result;
 }

@@ -323,6 +323,12 @@ void Compiler::declare_expr(const Expression& expr) {
 			declare_expr(*expr.lhs);
 			declare_expr(*expr.rhs);
 		},
+		[&](const AndExpr& expr) {
+			declare_expr(*expr.lhs);
+		},
+		[&](const OrExpr& expr) {
+			declare_expr(*expr.lhs);
+		},
 		[](const BlockExpr&) {},
 		[](const IfExpr&) {},
 		[](const WhileExpr&) {},
@@ -343,6 +349,47 @@ void Compiler::declare_expr(const Expression& expr) {
 void Compiler::define_variable(const std::string& name) {
 	peek_block().definitions[name] = peek_func().locals;
 	push_local();
+}
+
+// For short-circuit operators, we evaluate the rhs in a nested block.
+// This prevents variables declarated in it from being conditionally defined.
+
+void Compiler::compile_and(const AndExpr& expr) {
+	// eval lhs
+	compile_expr(*expr.lhs);
+	compile_instr(Opcode::Dup);
+	size_t finish_jump = get_address();
+	compile_instr(Opcode::JumpUnless, -1);
+	// eval rhs
+	compile_pop();
+	pop_local();
+	push_block();
+	declare_expr(*expr.rhs);
+	compile_expr(*expr.rhs);
+	compile_nip_all();
+	pop_block();
+	push_local();
+	// finish
+	peek_proto().code[finish_jump].arg = get_address();
+}
+
+void Compiler::compile_or(const OrExpr& expr) {
+	// eval lhs
+	compile_expr(*expr.lhs);
+	compile_instr(Opcode::Dup);
+	size_t finish_jump = get_address();
+	compile_instr(Opcode::JumpIf, -1);
+	// eval rhs
+	compile_pop();
+	pop_local();
+	push_block();
+	declare_expr(*expr.rhs);
+	compile_expr(*expr.rhs);
+	compile_nip_all();
+	pop_block();
+	push_local();
+	// finish
+	peek_proto().code[finish_jump].arg = get_address();
 }
 
 void Compiler::compile_block(const std::vector<ExpressionPtr>& exprs) {
@@ -579,6 +626,12 @@ void Compiler::compile_expr(const Expression& expr) {
 		},
 		[&](const BinaryExpr& expr) {
 			compile_binary(expr);
+		},
+		[&](const AndExpr& expr) {
+			compile_and(expr);
+		},
+		[&](const OrExpr& expr) {
+			compile_or(expr);
 		},
 		[&](const BlockExpr& expr) {
 			compile_block(expr.exprs);

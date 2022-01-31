@@ -183,13 +183,10 @@ TEST(ParserTest, Procedures) {
 	EXPECT_EQ(actual, expected);
 }
 
-TEST(ParserTest, Operators) {
+TEST(ParserTest, UnaryOperators) {
 	std::string_view input =
 		"-!foo@bar.baz(x.+(x), y);"
 		"self@x = foo() + bar.baz;"
-		"foo + -bar - !!baz*boo;"
-		"(1 > 2) == (3 >= 4) != false;"
-		"x == 10;"
 		"void(f(()), g(x, y, z,))";
 
 	auto expected = ExpressionSeq{{
@@ -226,6 +223,33 @@ TEST(ParserTest, Operators) {
 			)
 		),
 
+		make_expr<CallExpr>(make_expr<VariableExpr>("void"), std::vector{
+			make_expr<CallExpr>(
+				make_expr<VariableExpr>("f"),
+				std::vector{make_expr<EmptyExpr>()}
+			),
+			make_expr<CallExpr>(
+				make_expr<VariableExpr>("g"),
+				std::vector{
+					make_expr<VariableExpr>("x"),
+					make_expr<VariableExpr>("y"),
+					make_expr<VariableExpr>("z"),
+				}
+			),
+		}),
+	}};
+	auto actual = parse_expr_seq(input);
+	EXPECT_EQ(actual, expected);
+}
+
+TEST(ParserTest, BinaryOperators) {
+	std::string_view input =
+		"foo + -bar - !!baz*boo;"
+		"(1 > 2) == (3 >= 4) != false;"
+		"x == 10;"
+		"x && y || z";
+
+	auto expected = ExpressionSeq{{
 		make_expr<BinaryExpr>(
 			"*",
 			make_expr<BinaryExpr>(
@@ -262,20 +286,13 @@ TEST(ParserTest, Operators) {
 
 		make_expr<BinaryExpr>("==", make_expr<VariableExpr>("x"), make_expr<IntExpr>(10)),
 
-		make_expr<CallExpr>(make_expr<VariableExpr>("void"), std::vector{
-			make_expr<CallExpr>(
-				make_expr<VariableExpr>("f"),
-				std::vector{make_expr<EmptyExpr>()}
+		make_expr<OrExpr>(
+			make_expr<AndExpr>(
+				make_expr<VariableExpr>("x"),
+				make_expr<VariableExpr>("y")
 			),
-			make_expr<CallExpr>(
-				make_expr<VariableExpr>("g"),
-				std::vector{
-					make_expr<VariableExpr>("x"),
-					make_expr<VariableExpr>("y"),
-					make_expr<VariableExpr>("z"),
-				}
-			),
-		}),
+			make_expr<VariableExpr>("z")
+		),
 	}};
 	auto actual = parse_expr_seq(input);
 	EXPECT_EQ(actual, expected);

@@ -105,6 +105,9 @@ private:
 	void declare_expr(const Expression& expr);
 	void define_variable(const std::string& name);
 
+	void compile_and(const AndExpr& expr);
+	void compile_or(const OrExpr& expr);
+
 	void compile_block(const std::vector<ExpressionPtr>& exprs);
 	void compile_if(const IfExpr& expr);
 	void compile_while(const WhileExpr& expr);
