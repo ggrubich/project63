@@ -186,7 +186,7 @@ std::ostream& show_expr(std::ostream& s, Indent indent, const Expression& expr) 
 						s << ", ";
 					}
 				}
-				s << (indent+1) << "],\n";
+				s << "],\n";
 			}
 			for (auto& x : expr.body) {
 				show_expr(s, indent+1, *x) << ",\n";
