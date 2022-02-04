@@ -125,15 +125,16 @@ void Compiler::compile_variable(const VariableExpr& expr) {
 }
 
 void Compiler::compile_let(const LetExpr& expr) {
-	auto& name = expr.name;
-	assert(peek_block().declarations[name].size() > 0 &&
-			"Variable was not predeclared");
-	auto idx = peek_block().declarations[name].front();
 	compile_expr(*expr.value);
+	auto& name = expr.name;
+	auto& block = peek_block();
+	assert(block.declarations[name].size() > 0 &&
+		"Variable was not predeclared");
+	auto idx = block.declarations[name].front();
+	block.declarations[name].pop_front();
+	block.definitions[name] = idx;
 	compile_instr(Opcode::Dup);
 	compile_instr(Opcode::SetVar, idx);
-	peek_block().definitions[name] = idx;
-	peek_block().declarations[name].pop_front();
 }
 
 void Compiler::compile_assign(const AssignExpr& expr) {
