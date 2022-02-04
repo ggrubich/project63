@@ -42,6 +42,7 @@ struct TryExpr {
 	std::string error;
 	std::vector<ExpressionPtr> handler;
 };
+struct DeferExpr { ExpressionPtr expr; };
 
 struct LambdaExpr {
 	std::vector<std::string> args;
@@ -80,6 +81,7 @@ struct Expression : Variant<
 	IfExpr,
 	WhileExpr,
 	TryExpr,
+	DeferExpr,
 
 	LambdaExpr,
 	MethodExpr,

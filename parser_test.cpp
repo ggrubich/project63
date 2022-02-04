@@ -163,6 +163,25 @@ TEST(ParserTest, TryCatch) {
 	EXPECT_EQ(actual, expected);
 }
 
+TEST(ParserTest, Defers) {
+	std::string_view input =
+		"defer foo = bar;\n"
+		"defer {\n"
+		"  foo;\n"
+		"}";
+	auto expected = ExpressionSeq{{
+		make_expr<DeferExpr>(
+			make_expr<AssignExpr>("foo", make_expr<VariableExpr>("bar"))
+		),
+		make_expr<DeferExpr>(make_expr<BlockExpr>(std::vector{
+			make_expr<VariableExpr>("foo"),
+			make_expr<EmptyExpr>(),
+		})),
+	}};
+	auto actual = parse_expr_seq(input);
+	EXPECT_EQ(actual, expected);
+}
+
 TEST(ParserTest, Procedures) {
 	std::string_view input =
 		"fn() { return 13; };"

@@ -12,17 +12,42 @@
 
 namespace detail {
 
-struct LoopEnv {
+struct Deferral {
+	// Assumed number of locals at the start of deferral's bytecode.
+	size_t bottom;
+	// Assumed address of the first instruction.
+	size_t address;
+	// Deferral's compiled bytecode.
+	std::vector<Instruction> code;
+};
+
+struct PlainBlock {};
+
+struct LoopBlock {
 	// Addresses of jumps associated with each loop control instruction.
 	std::vector<size_t> continue_jumps;
 	std::vector<size_t> break_jumps;
 };
 
+struct DeferBlock {};
+
+struct TryBlock {};
+
+struct BlockKind : Variant<
+	PlainBlock,
+	LoopBlock,
+	DeferBlock,
+	TryBlock
+> {
+	using Variant::Variant;
+	BlockKind();
+};
+
 struct BlockEnv {
 	// Index of the first local used by the block.
 	size_t bottom;
-	// Number of exception handlers currently active in this block.
-	size_t handlers;
+	// Currently active defers.
+	std::vector<Deferral> deferrals;
 	// Local variables and their stack indices.
 	// Definitions contain the currently accessible variables.
 	// Declaration are predeclared variables intended for future use.
@@ -30,8 +55,8 @@ struct BlockEnv {
 	// for implementing variable shadowing.
 	std::unordered_map<std::string, size_t> definitions;
 	std::unordered_map<std::string, std::deque<size_t>> declarations;
-	// Contains an env only if the block is a loop.
-	std::optional<LoopEnv> loop;
+	// Specialized block type.
+	BlockKind kind;
 };
 
 struct FunctionEnv {
@@ -77,9 +102,6 @@ private:
 
 	void compile_pop();
 	void compile_nip();
-	void compile_pop_all(size_t nblocks = 1);
-	void compile_nip_all(size_t nblocks = 1);
-	void compile_uncatch_all(size_t nblocks = 1);
 
 	void compile_constant(const Value& value);
 	void compile_string(const std::string& str);
@@ -103,7 +125,12 @@ private:
 	void compile_binary(const BinaryExpr& expr);
 
 	void declare_expr(const Expression& expr);
+	void declare_expr_chain(const std::vector<ExpressionPtr>& exprs);
 	void define_variable(const std::string& name);
+
+	void compile_leave(size_t nblocks = 1);
+	void compile_leave_pop(size_t nblocks = 1);
+	void compile_leave_nip(size_t nblocks = 1);
 
 	void compile_and(const AndExpr& expr);
 	void compile_or(const OrExpr& expr);
@@ -112,6 +139,7 @@ private:
 	void compile_if(const IfExpr& expr);
 	void compile_while(const WhileExpr& expr);
 	void compile_try(const TryExpr& expr);
+	void compile_defer(const DeferExpr& expr);
 
 	void compile_lambda(const LambdaExpr& expr);
 	void compile_method(const MethodExpr& expr);

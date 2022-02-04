@@ -160,6 +160,11 @@ std::ostream& show_expr(std::ostream& s, Indent indent, const Expression& expr) 
 			s << (indent+1) << "],\n";
 			s << indent << "}";
 		},
+		[&](const DeferExpr& expr) {
+			s << indent << "Defer{\n";
+			show_expr(s, indent+1, *expr.expr) << "\n";
+			s << indent << "}";
+		},
 
 		[&](const LambdaExpr& expr) {
 			s << indent << "Lambda{\n";
@@ -305,6 +310,7 @@ bool operator==(const Expression& e1, const Expression& e2) {
 				x.error == y.error &&
 				all_equal(x.handler, y.handler);
 		},
+		[](const DeferExpr& x, const DeferExpr& y) { return *x.expr == *y.expr; },
 		[](const LambdaExpr& x, const LambdaExpr& y) {
 			return x.args == y.args && all_equal(x.body, y.body);
 		},
@@ -355,6 +361,7 @@ enum class TokenType {
 	While,
 	Try,
 	Catch,
+	Defer,
 	Fn,
 	Method,
 	Break,
@@ -395,6 +402,7 @@ std::ostream& operator<<(std::ostream& s, TokenType type) {
 	case TokenType::While:      s << "keyword while"; break;
 	case TokenType::Try:        s << "keyword try"; break;
 	case TokenType::Catch:      s << "keyword catch"; break;
+	case TokenType::Defer:      s << "keyword defer"; break;
 	case TokenType::Fn:         s << "keyword fn"; break;
 	case TokenType::Method:     s << "keyword method"; break;
 	case TokenType::Break:      s << "keyword break"; break;
@@ -439,6 +447,7 @@ constexpr auto known_keywords = std::array{
 	std::pair{"while"sv, TokenType::While},
 	std::pair{"try"sv, TokenType::Try},
 	std::pair{"catch"sv, TokenType::Catch},
+	std::pair{"defer"sv, TokenType::Defer},
 	std::pair{"fn"sv, TokenType::Fn},
 	std::pair{"method"sv, TokenType::Method},
 	std::pair{"break"sv, TokenType::Break},
@@ -612,6 +621,7 @@ public:
 	ExpressionPtr parse_if();
 	ExpressionPtr parse_while();
 	ExpressionPtr parse_try();
+	ExpressionPtr parse_defer();
 
 	std::vector<std::string> parse_arguments();
 	ExpressionPtr parse_lambda();
@@ -757,6 +767,12 @@ ExpressionPtr Parser::parse_try() {
 	return make_expr<TryExpr>(body, error, handler);
 }
 
+ExpressionPtr Parser::parse_defer() {
+	expect(tokens.next(), TokenType::Defer, "defer");
+	auto expr = parse_expr();
+	return make_expr<DeferExpr>(expr);
+}
+
 std::vector<std::string> Parser::parse_arguments() {
 	expect(tokens.next(), TokenType::LParen, "argument list");
 	std::vector<std::string> result;
@@ -850,6 +866,9 @@ ExpressionPtr Parser::parse_basic_expr() {
 		break;
 	case TokenType::Try:
 		result = parse_try();
+		break;
+	case TokenType::Defer:
+		result = parse_defer();
 		break;
 	case TokenType::Fn:
 		result = parse_lambda();

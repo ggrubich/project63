@@ -597,3 +597,196 @@ TEST(CompilerTest, ShortCircuitLogic) {
 	auto result = vm->run(*main)->get<bool>();
 	EXPECT_EQ(result, true);
 }
+
+TEST(CompilerTest, DeferScope) {
+	// let n = 0;
+	// fn main() {
+	//     defer {
+	//         defer n = n + 100;
+	//         n += 1;
+	//     };
+	//     let i = 0;
+	//     while true {
+	//         defer n = n + 1;
+	//         if n == 9 {
+	//             break
+	//         }
+	//         else {
+	//             defer i = i + 1
+	//         }
+	//     }
+	//     return;
+	// };
+	// main();
+	// n
+
+	Context ctx;
+	init_builtins(ctx);
+
+	auto body = ExpressionSeq{{
+		make_expr<LetExpr>("n", make_expr<IntExpr>(0)),
+		make_expr<LetExpr>("main", make_expr<LambdaExpr>(
+			std::vector<std::string>{},
+			std::vector{
+				make_expr<DeferExpr>(make_expr<BlockExpr>(std::vector{
+					make_expr<DeferExpr>(
+						make_expr<AssignExpr>("n", make_expr<CallExpr>(
+							make_expr<VariableExpr>("+"),
+							std::vector{
+								make_expr<VariableExpr>("n"),
+								make_expr<IntExpr>(100),
+							}
+						))
+					),
+					make_expr<AssignExpr>("n", make_expr<CallExpr>(
+						make_expr<VariableExpr>("+"),
+						std::vector{
+							make_expr<VariableExpr>("n"),
+							make_expr<IntExpr>(1),
+						}
+					)),
+				})),
+
+				make_expr<LetExpr>("i", make_expr<IntExpr>(0)),
+				make_expr<WhileExpr>(make_expr<VariableExpr>("true"), std::vector{
+					make_expr<DeferExpr>(
+						make_expr<AssignExpr>("n", make_expr<CallExpr>(
+							make_expr<VariableExpr>("+"),
+							std::vector{
+								make_expr<VariableExpr>("n"),
+								make_expr<IntExpr>(1),
+							}
+						))
+					),
+					make_expr<IfExpr>(
+						std::vector{std::pair{
+							make_expr<CallExpr>(
+								make_expr<VariableExpr>("=="),
+								std::vector{
+									make_expr<VariableExpr>("i"),
+									make_expr<IntExpr>(9)
+								}
+							),
+							std::vector{make_expr<BreakExpr>()}
+						}},
+						std::optional{std::vector{
+							make_expr<DeferExpr>(
+								make_expr<AssignExpr>("i", make_expr<CallExpr>(
+									make_expr<VariableExpr>("+"),
+									std::vector{
+										make_expr<VariableExpr>("i"),
+										make_expr<IntExpr>(1),
+									}
+								))
+							)
+						}}
+					),
+				}),
+
+				make_expr<ReturnExpr>(),
+			}
+		)),
+		make_expr<CallExpr>(make_expr<VariableExpr>("main"), std::vector<ExpressionPtr>{}),
+		make_expr<VariableExpr>("n"),
+	}};
+
+	auto compiler = ctx.root(Compiler(ctx));
+	auto main = compiler->compile(body);
+	auto vm = ctx.root(VM(ctx));
+	auto result = vm->run(*main)->get<int64_t>();
+	EXPECT_EQ(result, 111);
+}
+
+TEST(CompilerTest, DeferThrow) {
+	// let n = 0;
+	// fn main() {
+	//     try {
+	//         defer n = n + 1;
+	//         defer throw 10;
+	//         try { return; } catch x {}
+	//     }
+	//     catch x {
+	//         n = n + x
+	//     };
+	//     try {
+	//         defer throw 100;
+	//         throw 0;
+	//     }
+	//     catch x {
+	//         n = n + x;
+	//     }
+	// };
+	// main();
+	// n
+
+	Context ctx;
+	init_builtins(ctx);
+
+	auto body = ExpressionSeq{{
+		make_expr<LetExpr>("n", make_expr<IntExpr>(0)),
+		make_expr<LetExpr>("main", make_expr<LambdaExpr>(
+			std::vector<std::string>{},
+			std::vector{
+				make_expr<TryExpr>(
+					std::vector{
+						make_expr<DeferExpr>(
+							make_expr<AssignExpr>("n", make_expr<CallExpr>(
+								make_expr<VariableExpr>("+"),
+								std::vector{
+									make_expr<VariableExpr>("n"),
+									make_expr<IntExpr>(1),
+								}
+							))
+						),
+						make_expr<DeferExpr>(
+							make_expr<ThrowExpr>(make_expr<IntExpr>(10))
+						),
+						make_expr<TryExpr>(
+							std::vector{make_expr<ReturnExpr>()},
+							"x",
+							std::vector<ExpressionPtr>{}
+						),
+					},
+					"x",
+					std::vector{
+						make_expr<AssignExpr>("n", make_expr<CallExpr>(
+							make_expr<VariableExpr>("+"),
+							std::vector{
+								make_expr<VariableExpr>("n"),
+								make_expr<VariableExpr>("x"),
+							}
+						))
+					}
+				),
+
+				make_expr<TryExpr>(
+					std::vector{
+						make_expr<DeferExpr>(make_expr<ThrowExpr>(make_expr<IntExpr>(100))),
+						make_expr<ThrowExpr>(make_expr<IntExpr>(0)),
+					},
+					"x",
+					std::vector{
+						make_expr<AssignExpr>("n", make_expr<CallExpr>(
+							make_expr<VariableExpr>("+"),
+							std::vector{
+								make_expr<VariableExpr>("n"),
+								make_expr<VariableExpr>("x"),
+							}
+						))
+					}
+				)
+			}
+		)),
+		make_expr<CallExpr>(
+			make_expr<VariableExpr>("main"),
+			std::vector<ExpressionPtr>{}
+		),
+		make_expr<VariableExpr>("n"),
+	}};
+
+	auto compiler = ctx.root(Compiler(ctx));
+	auto main = compiler->compile(body);
+	auto vm = ctx.root(VM(ctx));
+	auto result = vm->run(*main)->get<int64_t>();
+	EXPECT_EQ(result, 111);
+}

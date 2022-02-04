@@ -4,6 +4,12 @@
 #include <cassert>
 #include <sstream>
 
+namespace detail {
+
+BlockKind::BlockKind() : Variant(PlainBlock()) {}
+
+}  // namespace detail
+
 Compiler::Compiler(Context& ctx)
 	: ctx(ctx)
 	, functions()
@@ -39,7 +45,7 @@ void Compiler::push_block() {
 	auto& func = peek_func();
 	detail::BlockEnv block;
 	block.bottom = func.locals;
-	block.handlers = 0;
+	block.kind = detail::PlainBlock{};
 	func.blocks.push_back(block);
 }
 
@@ -75,40 +81,12 @@ void Compiler::compile_instr(Opcode op, uint32_t arg) {
 
 void Compiler::compile_pop() {
 	compile_instr(Opcode::Pop);
+	pop_local();
 }
 
 void Compiler::compile_nip() {
 	compile_instr(Opcode::Nip);
-}
-
-void Compiler::compile_pop_all(size_t nblocks) {
-	if (nblocks > 0) {
-		auto& func = peek_func();
-		size_t n = func.locals - (func.blocks.end() - nblocks)->bottom;
-		while (n-- > 0) {
-			compile_pop();
-		}
-	}
-}
-
-void Compiler::compile_nip_all(size_t nblocks) {
-	if (nblocks > 0) {
-		auto& func = peek_func();
-		size_t n = func.locals - (func.blocks.end() - nblocks)->bottom - 1;
-		while (n-- > 0) {
-			compile_nip();
-		}
-	}
-}
-
-void Compiler::compile_uncatch_all(size_t nblocks) {
-	auto& func = peek_func();
-	auto end = func.blocks.rbegin() + nblocks;
-	for (auto it = func.blocks.rbegin(); it != end; ++it) {
-		for (size_t i = 0; i < it->handlers; ++i) {
-			compile_instr(Opcode::Uncatch);
-		}
-	}
+	pop_local();
 }
 
 void Compiler::compile_constant(const Value& value) {
@@ -309,9 +287,7 @@ void Compiler::declare_expr(const Expression& expr) {
 		},
 		[&](const CallExpr& expr) {
 			declare_expr(*expr.func);
-			for (auto& arg : expr.args) {
-				declare_expr(*arg);
-			}
+			declare_expr_chain(expr.args);
 		},
 		[&](const SendExpr& expr) {
 			declare_expr(*expr.obj);
@@ -332,25 +308,97 @@ void Compiler::declare_expr(const Expression& expr) {
 		[](const BlockExpr&) {},
 		[](const IfExpr&) {},
 		[](const WhileExpr&) {},
+		[](const TryExpr&) {},
+		[](const DeferExpr&) {},
 		[](const LambdaExpr&) {},
 		[](const MethodExpr&) {},
+		[](const BreakExpr&) {},
+		[](const ContinueExpr&) {},
 		[&](const ReturnExpr& expr) {
 			if (expr.value) {
 				declare_expr(**expr.value);
 			}
 		},
-		[](const BreakExpr&) {},
-		[](const ContinueExpr&) {},
 		[&](const ThrowExpr& expr) {
 			declare_expr(*expr.value);
-		},
-		[&](const TryExpr&) {}
+		}
 	});
+}
+
+void Compiler::declare_expr_chain(const std::vector<ExpressionPtr>& exprs) {
+	for (auto& expr : exprs) {
+		declare_expr(*expr);
+	}
 }
 
 void Compiler::define_variable(const std::string& name) {
 	peek_block().definitions[name] = peek_func().locals;
 	push_local();
+}
+
+void Compiler::compile_leave(size_t nblocks) {
+	auto& func = peek_func();
+	for (auto block = func.blocks.rbegin();
+			block != func.blocks.rbegin()+nblocks;
+			++block)
+	{
+		for (auto defer = block->deferrals.rbegin();
+				defer != block->deferrals.rend();
+				++defer)
+		{
+			compile_instr(Opcode::Uncatch);
+			// Adjust stack indices and jump addresses.
+			size_t idx_diff = func.locals - defer->bottom;
+			size_t addr_diff = get_address() - defer->address;
+			for (auto instr : defer->code) {
+				switch (instr.op) {
+				case Opcode::GetVar:
+				case Opcode::SetVar:
+				case Opcode::MakeUp:
+					instr.arg = size_t(instr.arg) + idx_diff;
+					break;
+				case Opcode::Jump:
+				case Opcode::JumpIf:
+				case Opcode::JumpUnless:
+				case Opcode::Catch:
+					instr.arg = size_t(instr.arg) + addr_diff;
+					break;
+				default:
+					break;
+				}
+				compile_instr(instr.op, instr.arg);
+			}
+		}
+		if (block->kind.holds<detail::TryBlock>()) {
+			compile_instr(Opcode::Uncatch);
+		}
+	}
+}
+
+void Compiler::compile_leave_pop(size_t nblocks) {
+	compile_leave(nblocks);
+	if (nblocks > 0) {
+		auto& func = peek_func();
+		assert(func.locals >= (func.blocks.end()-nblocks)->bottom &&
+			"Local stack underflow");
+		size_t n = func.locals - (func.blocks.end()-nblocks)->bottom;
+		while (n-- > 0) {
+			compile_instr(Opcode::Pop);
+		}
+	}
+}
+
+void Compiler::compile_leave_nip(size_t nblocks) {
+	compile_leave(nblocks);
+	if (nblocks > 0) {
+		auto& func = peek_func();
+		assert(func.locals > (func.blocks.end()-nblocks)->bottom &&
+			"Local stack underflow");
+		size_t n = func.locals - (func.blocks.end()-nblocks)->bottom - 1;
+		while (n-- > 0) {
+			compile_instr(Opcode::Nip);
+		}
+	}
 }
 
 // For short-circuit operators, we evaluate the rhs in a nested block.
@@ -364,11 +412,10 @@ void Compiler::compile_and(const AndExpr& expr) {
 	compile_instr(Opcode::JumpUnless, -1);
 	// eval rhs
 	compile_pop();
-	pop_local();
 	push_block();
 	declare_expr(*expr.rhs);
 	compile_expr(*expr.rhs);
-	compile_nip_all();
+	compile_leave_nip();
 	pop_block();
 	push_local();
 	// finish
@@ -383,11 +430,10 @@ void Compiler::compile_or(const OrExpr& expr) {
 	compile_instr(Opcode::JumpIf, -1);
 	// eval rhs
 	compile_pop();
-	pop_local();
 	push_block();
 	declare_expr(*expr.rhs);
 	compile_expr(*expr.rhs);
-	compile_nip_all();
+	compile_leave_nip();
 	pop_block();
 	push_local();
 	// finish
@@ -400,11 +446,9 @@ void Compiler::compile_block(const std::vector<ExpressionPtr>& exprs) {
 		return;
 	}
 	push_block();
-	for (auto& x : exprs) {
-		declare_expr(*x);
-	}
+	declare_expr_chain(exprs);
 	compile_expr_chain(exprs);
-	compile_nip_all();
+	compile_leave_nip();
 	pop_block();
 	push_local();
 }
@@ -425,13 +469,13 @@ void Compiler::compile_if(const IfExpr& expr) {
 		pop_local();
 		// If true, evaluate the body, pop locals and jump to the end.
 		compile_block(branch.second);
-		compile_nip_all();
+		compile_leave_nip();
 		finish_jumps.push_back(get_address());
 		compile_instr(Opcode::Jump, -1);
 		pop_local();
 		// If false, pop block locals and go to the next branch.
 		peek_proto().code[next_jump].arg = get_address();
-		compile_pop_all();
+		compile_leave_pop();
 		// Clean up the locals before next iteration.
 		pop_block();
 	}
@@ -458,23 +502,22 @@ void Compiler::compile_while(const WhileExpr& expr) {
 	pop_local();
 	// If true, evaluate the loop body, pop the result and block variables
 	// and jump to the start.
-	peek_block().loop = detail::LoopEnv{};
+	peek_block().kind = detail::LoopBlock{};
 	compile_block(expr.body);
 	compile_pop();
-	pop_local();
-	for (auto jump : peek_block().loop->continue_jumps) {
+	for (auto jump : peek_block().kind.get<detail::LoopBlock>().continue_jumps) {
 		// (continues join here)
 		peek_proto().code[jump].arg = get_address();
 	}
-	compile_pop_all();
+	compile_leave_pop();
 	compile_instr(Opcode::Jump, start_addr);
 	// If false, pop block variables and push nil as a result.
 	peek_proto().code[finish_jump].arg = get_address();
-	for (auto jump : peek_block().loop->break_jumps) {
+	for (auto jump : peek_block().kind.get<detail::LoopBlock>().break_jumps) {
 		// (breaks join here)
 		peek_proto().code[jump].arg = get_address();
 	}
-	compile_pop_all();
+	compile_leave_pop();
 	pop_block();
 	compile_nil();
 }
@@ -483,24 +526,54 @@ void Compiler::compile_try(const TryExpr& expr) {
 	// Set up the handler, evaluate the body.
 	size_t handler_jump = get_address();
 	compile_instr(Opcode::Catch, -1);
-	peek_block().handlers += 1;
-	compile_block(expr.body);
-	compile_instr(Opcode::Uncatch);
-	peek_block().handlers -= 1;
+	push_block();
+	peek_block().kind = detail::TryBlock{};
+	declare_expr_chain(expr.body);
+	compile_expr_chain(expr.body);
+	compile_leave_nip();
+	pop_block();
 	// If no errors were thrown, jump to the end.
 	size_t finish_jump = get_address();
 	compile_instr(Opcode::Jump, -1);
-	pop_local();
 	// If error was thrown, bind it to a variable and run the handler.
 	peek_proto().code[handler_jump].arg = get_address();
 	push_block();
 	define_variable(expr.error);
 	compile_block(expr.handler);
-	compile_nip_all();
+	compile_nip();
 	pop_block();
 	// Finish
 	peek_proto().code[finish_jump].arg = get_address();
 	push_local();
+}
+
+void Compiler::compile_defer(const DeferExpr& expr) {
+	detail::Deferral defer;
+	// Push an exception handler which runs the defer contents and rethrows
+	// the exception. Copy the hander code to a deferral object.
+	compile_instr(Opcode::Catch, get_address()+2);
+	size_t skip_jump = get_address();
+	compile_instr(Opcode::Jump, -1);
+	push_local();
+	// Handler itself.
+	defer.address = get_address();
+	defer.bottom = peek_func().locals;
+	push_block();
+	peek_block().kind = detail::DeferBlock{};
+	declare_expr(*expr.expr);
+	compile_expr(*expr.expr);
+	compile_leave_pop();
+	pop_block();
+	defer.code = std::vector<Instruction>(
+		peek_proto().code.begin() + defer.address,
+		peek_proto().code.end()
+	);
+	// Rethrow and finalize.
+	compile_instr(Opcode::Throw);
+	pop_local();
+	peek_proto().code[skip_jump].arg = get_address();
+	peek_block().deferrals.emplace_back(defer);
+	compile_nil();
 }
 
 void Compiler::compile_lambda(const LambdaExpr& expr) {
@@ -516,10 +589,9 @@ void Compiler::compile_lambda(const LambdaExpr& expr) {
 		define_variable(arg);
 	}
 	push_block();
-	for (auto& expr : expr.body) {
-		declare_expr(*expr);
-	}
+	declare_expr_chain(expr.body);
 	compile_expr_chain(expr.body);
+	compile_leave();
 	compile_instr(Opcode::Return);
 	// Move the constructed value to the constant.
 	auto value = ctx.alloc<Function>(*ctx.alloc(std::move(peek_proto())));
@@ -552,22 +624,26 @@ void Compiler::compile_method(const MethodExpr& expr) {
 
 void Compiler::compile_loop_control(bool cont) {
 	auto& func = peek_func();
-	auto loop_block = std::find_if(
-		func.blocks.rbegin(),
-		func.blocks.rend(),
-		[&](auto& x) { return bool(x.loop); }
-	);
-	if (loop_block == func.blocks.rend()) {
-		throw std::runtime_error("Break and continue can only be used inside of a loop");
+	auto loop_block = func.blocks.rend();
+	for (auto block = func.blocks.rbegin(); ; ++block) {
+		if (block == func.blocks.rend() ||
+				block->kind.holds<detail::DeferBlock>())
+		{
+			throw std::runtime_error("Break and continue can only be used inside of a loop");
+		}
+		else if (block->kind.holds<detail::LoopBlock>()) {
+			loop_block = block;
+			break;
+		}
 	}
 	size_t nblocks = loop_block - func.blocks.rbegin();
-	compile_pop_all(nblocks);
-	compile_uncatch_all(nblocks);
+	compile_leave_pop(nblocks);
+	auto& loop = loop_block->kind.get<detail::LoopBlock>();
 	if (cont) {
-		loop_block->loop->continue_jumps.emplace_back(get_address());
+		loop.continue_jumps.emplace_back(get_address());
 	}
 	else {
-		loop_block->loop->break_jumps.emplace_back(get_address());
+		loop.break_jumps.emplace_back(get_address());
 	}
 	compile_instr(Opcode::Jump, -1);
 	push_local();
@@ -582,12 +658,18 @@ void Compiler::compile_continue(const ContinueExpr&) {
 }
 
 void Compiler::compile_return(const ReturnExpr& expr) {
+	for (auto block : peek_func().blocks) {
+		if (block.kind.holds<detail::DeferBlock>()) {
+			throw std::runtime_error("Can't return from a defer");
+		}
+	}
 	if (expr.value) {
 		compile_expr(**expr.value);
 	}
 	else {
 		compile_nil();
 	}
+	compile_leave(peek_func().blocks.size());
 	compile_instr(Opcode::Return);
 }
 
@@ -652,6 +734,9 @@ void Compiler::compile_expr(const Expression& expr) {
 		[&](const TryExpr& expr) {
 			compile_try(expr);
 		},
+		[&](const DeferExpr& expr) {
+			compile_defer(expr);
+		},
 		[&](const LambdaExpr& expr) {
 			compile_lambda(expr);
 		},
@@ -682,7 +767,6 @@ void Compiler::compile_expr_chain(const std::vector<ExpressionPtr>& exprs) {
 	compile_expr(**it);
 	for (++it; it != exprs.end(); ++it) {
 		compile_pop();
-		pop_local();
 		compile_expr(**it);
 	}
 }
@@ -696,10 +780,9 @@ Root<Ptr<Function>> Compiler::compile_main(const std::vector<ExpressionPtr>& bod
 		pop_local();
 		define_variable(x.first);
 	}
-	for (auto& expr : body) {
-		declare_expr(*expr);
-	}
+	declare_expr_chain(body);
 	compile_expr_chain(body);
+	compile_leave();
 	compile_instr(Opcode::Return);
 	auto main = ctx.alloc<Function>(*ctx.alloc(std::move(peek_proto())));
 	pop_func();
