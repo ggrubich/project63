@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+namespace {
+
 void define_string(Context& ctx, const Ptr<Klass>& cls,
 		const std::string& name, const std::string& value)
 {
@@ -17,6 +19,8 @@ std::optional<std::string> lookup_string(const Ptr<Klass>& cls, const std::strin
 		return std::nullopt;
 	}
 }
+
+}  // namespace anonymous
 
 TEST(ValueTest, MethodLookup) {
 	Context ctx;

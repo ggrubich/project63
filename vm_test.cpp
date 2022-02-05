@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+namespace {
+
 template<typename F>
 Root<Ptr<CppFunction>> make_unary(Context& ctx, F f) {
 	return ctx.alloc(CppLambda(1, [=](Context& ctx, const std::vector<Value>& xs) {
@@ -23,6 +25,8 @@ Root<Ptr<CppFunction>> make_binary(Context& ctx, F f) {
 		return ctx.root(Value(f(x, y)));
 	}));
 }
+
+}  // namespace anonymous
 
 TEST(VmTest, Factorial) {
 	Context ctx;

@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+namespace {
+
 template<typename F>
 Root<Ptr<CppFunction>> make_binary(Context& ctx, F func) {
 	return ctx.alloc(CppLambda(2, [=](Context& ctx, const std::vector<Value>& xs) {
@@ -22,6 +24,8 @@ void init_builtins(Context& ctx) {
 	ctx.builtins["+"] = *make_binary(ctx, std::plus<int64_t>{});
 	ctx.builtins["-"] = *make_binary(ctx, std::minus<int64_t>{});
 }
+
+}  // namespace anonymous
 
 TEST(CompilerTest, RecursiveFunctions) {
 	// fn main() {

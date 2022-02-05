@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+namespace {
+
 class Count {
 private:
 	std::shared_ptr<int64_t> value;
@@ -69,6 +71,8 @@ Ptr<Node>& Node::operator[](size_t idx) {
 const Ptr<Node>& Node::operator[](size_t idx) const {
 	return edges[idx];
 }
+
+}  // namespace anonymous
 
 template<> struct Trace<Node> {
 	void operator()(const Node& x, Tracer& t) {
@@ -172,6 +176,8 @@ TEST(GcTest, PtrValidity) {
 	EXPECT_FALSE(ptr.valid()) << "deallocated ptr should be invalid";
 }
 
+namespace {
+
 struct Base {
 	virtual ~Base() = default;
 };
@@ -182,11 +188,13 @@ struct Right : Base {};
 
 struct DerivedA : Left, Right {};
 
+struct DerivedB : Base {};
+
+}  // namespace anonymous
+
 template<> struct Trace<DerivedA> {
 	void operator()(const DerivedA&, Tracer&) {}
 };
-
-struct DerivedB : Base {};
 
 TEST(GcTest, PtrCasts) {
 	Collector gc;
