@@ -225,6 +225,7 @@ void Compiler::compile_get_prop(const GetPropExpr& expr) {
 
 void Compiler::compile_set_prop(const SetPropExpr& expr) {
 	compile_expr(*expr.obj);
+	compile_instr(Opcode::Dup);
 	compile_string(expr.name);
 	compile_expr(*expr.value);
 	compile_instr(Opcode::SetProp);
