@@ -103,7 +103,7 @@ TEST(VmTest, Factorial) {
 	auto vm = ctx.root(VM(ctx));
 	for (auto p : inputs) {
 		(*main)->proto->constants[1] = p.first;
-		auto actual = vm->run(*main)->get<int64_t>();
+		auto actual = vm->call(*main, {})->get<int64_t>();
 		auto expected = p.second;
 		EXPECT_EQ(actual, expected) << "fact(" << p.first << ") yields wrong result";
 	}
@@ -189,7 +189,7 @@ TEST(VmTest, Fibbonacci) {
 	};
 	for (auto p : inputs) {
 		(*main)->proto->constants[1] = Value(p.first);
-		auto actual = vm->run(*main)->get<int64_t>();
+		auto actual = vm->call(*main, {})->get<int64_t>();
 		auto expected = p.second;
 		EXPECT_EQ(actual, expected) << "fib(" << p.first << ") yields wrong result";
 	}
@@ -264,7 +264,7 @@ TEST(VmTest, Closures) {
 	};
 
 	auto vm = ctx.root(VM(ctx));
-	auto actual = vm->run(*main)->get<int64_t>();
+	auto actual = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(actual, 6);
 }
 
@@ -327,7 +327,7 @@ TEST(VmTest, Exceptions) {
 
 	auto vm = ctx.root(VM(ctx));
 	try {
-		vm->run(*main);
+		vm->call(*main, {});
 		EXPECT_FALSE(true) << "Main didn't throw";
 	}
 	catch (const Root<Value>& err) {
@@ -372,7 +372,7 @@ TEST(VmTest, Properties) {
 		*ctx.alloc<std::string>("bar")
 	};
 	auto vm = ctx.root(VM(ctx));
-	auto actual = *vm->run(*main)->get<Ptr<std::string>>();
+	auto actual = *vm->call(*main, {})->get<Ptr<std::string>>();
 	EXPECT_EQ(actual, "bar") << "Result of main is wrong";
 }
 
@@ -445,11 +445,11 @@ TEST(VmTest, Methods) {
 		(*main)->proto->constants[0] = obj;
 		(*main)->proto->constants[1] = *ctx.alloc<std::string>(msg);
 		if (expected) {
-			auto actual = *vm->run(*main)->get<Ptr<std::string>>();
+			auto actual = *vm->call(*main, {})->get<Ptr<std::string>>();
 			EXPECT_EQ(actual, *expected) << msg << "result is wrong";
 		}
 		else {
-			EXPECT_THROW({ vm->run(*main); }, Root<Value>)
+			EXPECT_THROW({ vm->call(*main, {}); }, Root<Value>)
 				<< "Sending " << msg << " didn't throw an exception";
 		}
 	}

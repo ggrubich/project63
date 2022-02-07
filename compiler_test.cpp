@@ -155,7 +155,7 @@ TEST(CompilerTest, RecursiveFunctions) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 62) << "Evaluation result is wrong";
 }
 
@@ -212,7 +212,7 @@ TEST(CompilerTest, TryCatch) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 3) << "Evaluation result is wrong";
 }
 
@@ -274,7 +274,7 @@ TEST(CompilerTest, NestedBlocks) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 42) << "Evaluation result is wrong";
 }
 
@@ -351,7 +351,7 @@ TEST(CompilerTest, FibIter) {
 	for (auto& pair : inputs) {
 		body.exprs[1]->get<CallExpr>().args[0]->get<IntExpr>().value = pair.first;
 		auto main = compiler->compile(body);
-		auto actual = vm->run(*main)->get<int64_t>();
+		auto actual = vm->call(*main, {})->get<int64_t>();
 		auto expected = pair.second;
 		EXPECT_EQ(actual, expected) <<
 			"fib(" << pair.first << ") result is wrong";
@@ -447,7 +447,7 @@ TEST(CompilerTest, BreakContinue) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 33) << "Evaluation result is wrong";
 }
 
@@ -527,7 +527,7 @@ TEST(CompilerTest, ClosureCounter) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 3) << "Evaluation result is wrong";
 }
 
@@ -561,7 +561,7 @@ TEST(CompilerTest, BreakFromTryBlock) {
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
 	try {
-		vm->run(*main);
+		vm->call(*main, {});
 		EXPECT_FALSE(true) << "Main didn't throw";
 	}
 	catch (const Root<Value>& err) {
@@ -598,7 +598,7 @@ TEST(CompilerTest, ShortCircuitLogic) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<bool>();
+	auto result = vm->call(*main, {})->get<bool>();
 	EXPECT_EQ(result, true);
 }
 
@@ -697,7 +697,7 @@ TEST(CompilerTest, DeferScope) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 111);
 }
 
@@ -791,6 +791,6 @@ TEST(CompilerTest, DeferThrow) {
 	auto compiler = ctx.root(Compiler(ctx));
 	auto main = compiler->compile(body);
 	auto vm = ctx.root(VM(ctx));
-	auto result = vm->run(*main)->get<int64_t>();
+	auto result = vm->call(*main, {})->get<int64_t>();
 	EXPECT_EQ(result, 111);
 }

@@ -42,111 +42,40 @@ void VM::trace(Tracer& t) const {
 	}
 }
 
-Root<Value> VM::run(const Value& main) {
+Root<Value> VM::call(const Value& func, const std::vector<Value>& args) {
 	data_stack.clear();
 	call_stack.clear();
 	exception_stack.clear();
 	exception_thrown = false;
 
-	push_data(main);
-	push_data(0);
-	call();
-
-	while (call_stack.size() > 0) {
-		auto& frame = call_stack.back();
-		const auto& code = frame.func->proto->code;
-		assert(frame.ip < code.size() && "Instruction pointer out of range");
-		auto instr = code[frame.ip++];
-		switch (instr.op) {
-		case Opcode::Nop:
-			break;
-		case Opcode::Pop:
-			pop_data();
-			break;
-		case Opcode::Nip:
-			nip_data();
-			break;
-		case Opcode::Dup:
-			push_data(peek_data());
-			break;
-		case Opcode::Nil:
-			push_data(Nil());
-			break;
-
-		case Opcode::GetVar:
-			get_variable(instr.arg);
-			break;
-		case Opcode::SetVar:
-			set_variable(instr.arg);
-			break;
-
-		case Opcode::GetConst:
-			push_data(frame.func->proto->constants[instr.arg]);
-			break;
-
-		case Opcode::GetUp:
-			get_upvalue(instr.arg);
-			break;
-		case Opcode::SetUp:
-			set_upvalue(instr.arg);
-			break;
-		case Opcode::ResetUp:
-			reset_upvalues();
-			break;
-		case Opcode::MakeUp:
-			make_upvalue(instr.arg);
-			break;
-		case Opcode::CopyUp:
-			copy_upvalue(instr.arg);
-			break;
-
-		case Opcode::GetProp:
-			get_property();
-			break;
-		case Opcode::SetProp:
-			set_property();
-			break;
-
-		case Opcode::Call:
-			call();
-			break;
-		case Opcode::Send:
-			send();
-			break;
-
-		case Opcode::Return:
-			return_();
-			break;
-		case Opcode::Jump:
-			jump(instr.arg);
-			break;
-		case Opcode::JumpIf:
-			jump_cond(instr.arg, true);
-			break;
-		case Opcode::JumpUnless:
-			jump_cond(instr.arg, false);
-			break;
-
-		case Opcode::Throw:
-			throw_();
-			break;
-		case Opcode::Catch:
-			catch_(instr.arg);
-			break;
-		case Opcode::Uncatch:
-			uncatch();
-			break;
-		}
+	push_data(func);
+	for (auto& arg : args) {
+		push_data(arg);
 	}
-	assert(data_stack.size() == 1 && "Data stack final size mismatch");
-	assert(call_stack.size() == 0 && "Call stack final size mismatch");
-	assert(exception_stack.size() == 0 && "Call stack final size mismatch");
-	auto result = ctx.root(pop_data());
-	if (exception_thrown) {
-		throw result;
-	} else {
-		return result;
-	}
+	push_data(int64_t(args.size()));
+	call_();
+	return run();
+}
+
+Root<Value> VM::send(const Value& obj, const std::string& msg) {
+	data_stack.clear();
+	call_stack.clear();
+	exception_stack.clear();
+	exception_thrown = false;
+
+	push_data(obj);
+	push_data(*ctx.alloc(msg));
+	send_();
+	return run();
+}
+
+Root<Value> VM::send_call(
+		const Value& obj,
+		const std::string& msg,
+		const std::vector<Value>& args)
+{
+	auto func = send(obj, msg);
+	return call(*func, args);
 }
 
 Value VM::remove_data(size_t off) {
@@ -292,7 +221,7 @@ void VM::set_property() {
 	});
 }
 
-void VM::call() {
+void VM::call_() {
 	size_t n = pop_data().get<int64_t>();
 	auto func = ctx.root(remove_data(n));
 	func->visit(Overloaded {
@@ -340,7 +269,7 @@ void VM::call_foreign(const Ptr<CppFunction>& func, size_t n) {
 	}
 }
 
-void VM::send() {
+void VM::send_() {
 	assert(peek_data().holds<Ptr<std::string>>() && "Message is not a string");
 	auto msg = pop_data().get<Ptr<std::string>>();
 	auto obj = pop_data();
@@ -349,7 +278,7 @@ void VM::send() {
 		push_data(*meth);
 		push_data(obj);
 		push_data(1);
-		call();
+		call_();
 	}
 	else if (auto not_understood = cls->lookup("not_understood")) {
 		push_data(*not_understood);
@@ -436,4 +365,102 @@ void VM::catch_(size_t addr) {
 void VM::uncatch() {
 	assert(exception_stack.size() > 0 && "Exception stack underflow");
 	exception_stack.pop_back();
+}
+
+Root<Value> VM::run() {
+	while (call_stack.size() > 0) {
+		auto& frame = call_stack.back();
+		const auto& code = frame.func->proto->code;
+		assert(frame.ip < code.size() && "Instruction pointer out of range");
+		auto instr = code[frame.ip++];
+		switch (instr.op) {
+		case Opcode::Nop:
+			break;
+		case Opcode::Pop:
+			pop_data();
+			break;
+		case Opcode::Nip:
+			nip_data();
+			break;
+		case Opcode::Dup:
+			push_data(peek_data());
+			break;
+		case Opcode::Nil:
+			push_data(Nil());
+			break;
+
+		case Opcode::GetVar:
+			get_variable(instr.arg);
+			break;
+		case Opcode::SetVar:
+			set_variable(instr.arg);
+			break;
+
+		case Opcode::GetConst:
+			push_data(frame.func->proto->constants[instr.arg]);
+			break;
+
+		case Opcode::GetUp:
+			get_upvalue(instr.arg);
+			break;
+		case Opcode::SetUp:
+			set_upvalue(instr.arg);
+			break;
+		case Opcode::ResetUp:
+			reset_upvalues();
+			break;
+		case Opcode::MakeUp:
+			make_upvalue(instr.arg);
+			break;
+		case Opcode::CopyUp:
+			copy_upvalue(instr.arg);
+			break;
+
+		case Opcode::GetProp:
+			get_property();
+			break;
+		case Opcode::SetProp:
+			set_property();
+			break;
+
+		case Opcode::Call:
+			call_();
+			break;
+		case Opcode::Send:
+			send_();
+			break;
+
+		case Opcode::Return:
+			return_();
+			break;
+		case Opcode::Jump:
+			jump(instr.arg);
+			break;
+		case Opcode::JumpIf:
+			jump_cond(instr.arg, true);
+			break;
+		case Opcode::JumpUnless:
+			jump_cond(instr.arg, false);
+			break;
+
+		case Opcode::Throw:
+			throw_();
+			break;
+		case Opcode::Catch:
+			catch_(instr.arg);
+			break;
+		case Opcode::Uncatch:
+			uncatch();
+			break;
+		}
+	}
+	assert(data_stack.size() == 1 && "Data stack final size mismatch");
+	assert(call_stack.size() == 0 && "Call stack final size mismatch");
+	assert(exception_stack.size() == 0 && "Call stack final size mismatch");
+	auto result = ctx.root(pop_data());
+	if (exception_thrown) {
+		throw result;
+	} else {
+		return result;
+	}
 }

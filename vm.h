@@ -48,11 +48,19 @@ public:
 
 	void trace(Tracer& t) const;
 
-	// Runs program's main function. Main takes no arguments.
-	// If the program encounters an unhandled exception, run will throw
-	// a Root<Value> as a C++ exception, otherwise main's result is returned.
-	Root<Value> run(const Value& main);
-
+	// VM entry points. All of those methods will throw a Root<Value>
+	// if an unhandled exception is encountered.
+	//
+	// Calls a function with given arguments.
+	Root<Value> call(const Value& func, const std::vector<Value>& args);
+	// Invokes a method handling the given message.
+	Root<Value> send(const Value& obj, const std::string& msg);
+	// Combines send and call.
+	Root<Value> send_call(
+		const Value& obj,
+		const std::string& msg,
+		const std::vector<Value>& args
+	);
 
 private:
 	Value remove_data(size_t off);
@@ -74,10 +82,10 @@ private:
 	void get_property();
 	void set_property();
 
-	void call();
+	void call_();
 	void call_native(const Ptr<Function>& func, size_t n);
 	void call_foreign(const Ptr<CppFunction>& func, size_t n);
-	void send();
+	void send_();
 
 	void return_();
 	void jump(size_t addr);
@@ -87,6 +95,8 @@ private:
 	void throw_string(const std::string& s);
 	void catch_(size_t addr);
 	void uncatch();
+
+	Root<Value> run();
 };
 
 template<> struct Trace<VM> {
