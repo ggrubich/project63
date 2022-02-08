@@ -473,6 +473,7 @@ constexpr auto known_symbols = std::array{
 	std::pair{"-"sv,  TokenType::Operator},
 	std::pair{"*"sv,  TokenType::Operator},
 	std::pair{"/"sv,  TokenType::Operator},
+	std::pair{"~"sv,  TokenType::Operator},
 	std::pair{"%"sv,  TokenType::Operator},
 	std::pair{"!"sv,  TokenType::Operator},
 	std::pair{"<"sv,  TokenType::Operator},
@@ -481,6 +482,7 @@ constexpr auto known_symbols = std::array{
 	std::pair{">="sv, TokenType::Operator},
 	std::pair{"=="sv, TokenType::Operator},
 	std::pair{"!="sv, TokenType::Operator},
+	std::pair{"++"sv, TokenType::Operator},
 };
 
 constexpr auto known_ident_specials = std::array{'_', '?'};

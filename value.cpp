@@ -1,5 +1,6 @@
 #include "value.h"
 
+#include "builtins.h"
 #include "strings.h"
 
 #include <cmath>
@@ -100,18 +101,7 @@ std::string Value::inspect() const {
 Context::Context()
 	: this_root(root(this))
 {
-	// TODO: Add actual methods.
-	object_cls = *alloc<Klass>(Ptr<Klass>(), std::nullopt);
-	class_cls = *alloc<Klass>(Ptr<Klass>(), std::nullopt);
-	object_cls->klass = *alloc<Klass>(class_cls, class_cls);
-	class_cls->klass = class_cls;
-	class_cls->base = object_cls;
-
-	nil_cls = *alloc<Klass>(*this, object_cls);
-	bool_cls = *alloc<Klass>(*this, object_cls);
-	int_cls = *alloc<Klass>(*this, object_cls);
-	string_cls = *alloc<Klass>(*this, object_cls);
-	function_cls = *alloc<Klass>(*this, object_cls);
+	load_builtins(*this);
 }
 
 Function::Function(const Ptr<FunctionProto>& proto)
