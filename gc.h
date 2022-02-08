@@ -56,7 +56,7 @@ struct BoxBase {
 	// Linked list of all boxes.
 	BoxBase* next;
 
-	BoxBase(uint8_t offset, BoxBase* next);
+	BoxBase(uint8_t offset);
 	virtual ~BoxBase() = default;
 
 	// Calls Trace on the contained value.
@@ -72,7 +72,7 @@ struct Box : public BoxBase {
 	alignas(T) uint8_t value[sizeof(T)];
 
 	template<typename... Args>
-	Box(BoxBase* next, Args&&... args);
+	Box(Args&&... args);
 
 	void trace(Tracer& t) override;
 	void destroy() override;
@@ -231,10 +231,8 @@ namespace detail {
 
 template<typename T>
 template<typename... Args>
-Box<T>::Box(BoxBase* next, Args&&... args)
-	: BoxBase(
-			reinterpret_cast<uintptr_t>(value) - reinterpret_cast<uintptr_t>(this),
-			next)
+Box<T>::Box(Args&&... args)
+	: BoxBase(reinterpret_cast<uintptr_t>(value) - reinterpret_cast<uintptr_t>(this))
 {
 	new(value) T(std::forward<Args>(args)...);
 }
@@ -394,11 +392,12 @@ template<typename T, typename... Args>
 Root<Ptr<T>> Collector::alloc(Args&&... args) {
 	static_assert(is_traceable_v<T>,
 			"Objects managed by the gc need to implement Trace");
+	auto box = new detail::Box<T>(std::forward<Args>(args)...);
 	if (allocations >= treshold) {
 		collect();
 		treshold = std::max(allocations * 2, size_t(128));
 	}
-	auto box = new detail::Box<T>(box_head, std::forward<Args>(args)...);
+	box->next = box_head;
 	box_head = box;
 	allocations += 1;
 	return root(Ptr<T>(box));

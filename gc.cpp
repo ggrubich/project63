@@ -2,12 +2,12 @@
 
 namespace detail {
 
-BoxBase::BoxBase(uint8_t offset, BoxBase* next)
+BoxBase::BoxBase(uint8_t offset)
 	: valid(true)
 	, marked(false)
 	, offset(offset)
 	, ptrs(0)
-	, next(next)
+	, next(nullptr)
 {}
 
 RootBase::RootBase(RootBase** head) {
