@@ -28,8 +28,15 @@ T coerce(VMContext& ctx, const Value& val, const char* where, const char* expect
 		return val.get<T>();
 	}
 	else {
-		error(ctx, "Unsupported operand ", val.inspect(),
-			" in ", where, ", expecting ", expected);
+		auto actual = ctx.vm.send(val.class_of(ctx), "inspect")->visit(Overloaded {
+			[&](const Ptr<std::string>& str) {
+				return *str;
+			},
+			[&](const auto&) {
+				return val.inspect();
+			}
+		});
+		error(ctx, where, ": encountered ", actual, " instead of ", expected);
 	}
 }
 
@@ -49,6 +56,26 @@ Ptr<std::string> coerce_string(VMContext& ctx, const Value& val, const char* whe
 	return coerce<Ptr<std::string>>(ctx, val, where, "String");
 }
 
+Variant<Ptr<Function>, Ptr<CppFunction>>
+coerce_function(VMContext& ctx, const Value& val, const char* where) {
+	try {
+		return coerce<Ptr<Function>>(ctx, val, where, "Function");
+	}
+	catch (const Root<Value>&) {
+		return coerce<Ptr<CppFunction>>(ctx, val, where, "Function");
+	}
+}
+
+Variant<Ptr<Object>, Ptr<CppObject>>
+coerce_object(VMContext& ctx, const Value& val, const char* where) {
+	try {
+		return coerce<Ptr<Object>>(ctx, val, where, "Object");
+	}
+	catch (const Root<Value>&) {
+		return coerce<Ptr<CppObject>>(ctx, val, where, "Object");
+	}
+}
+
 Ptr<Klass> coerce_class(VMContext& ctx, const Value& val, const char* where) {
 	return coerce<Ptr<Klass>>(ctx, val, where, "Class");
 }
@@ -58,22 +85,19 @@ void load_object(Context& ctx) {
 
 	ctx.object_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
 		[](VMContext& ctx, const Value& self, const std::vector<Value>& args) {
-			auto b = self.visit(Overloaded {
-				[&](const Ptr<Object>& x) {
-					return args[0].holds<Ptr<Object>>() &&
-						x.address() == args[0].get<Ptr<Object>>().address();
+			auto obj = coerce_object(ctx, self, "Object.==");
+			auto res = std::visit(Overloaded {
+				[](const Ptr<Object>& x, const Ptr<Object>& y) {
+					return x.address() == y.address();
 				},
-				[&](const Ptr<CppObject>& x) {
-					return args[0].holds<Ptr<CppObject>>() &&
-						x.address() == args[0].get<Ptr<CppObject>>().address();
+				[](const Ptr<CppObject>& x, const Ptr<CppObject>& y) {
+					return x.address() == y.address();
 				},
-				[&](const auto&) {
-					error(ctx, "Unsupported operand ", self.inspect(),
-						" in Object.==, expecting Object");
+				[](const auto&, const auto&) {
 					return false;
 				}
-			});
-			return ctx.g.root<Value>(b);
+			}, obj.inner, args[0].inner);
+			return ctx.g.root<Value>(res);
 		}
 	)));
 	ctx.object_cls->define(ctx, "!=", *ctx.alloc(CppMethod(1,
@@ -84,29 +108,19 @@ void load_object(Context& ctx) {
 	)));
 	ctx.object_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
 		[](VMContext& ctx, const std::vector<Value>& args) {
-			auto ptr = args[0].visit(Overloaded {
-				[](const Ptr<Object>& x) -> void* { return x.address(); },
-				[](const Ptr<CppObject>& x) -> void* { return x.address(); },
-				[&](const auto&) -> void* {
-					error(ctx, "Unsupported operand ", args[0].inspect(),
-						" in Object.hash expecting Object");
-					return nullptr;
-				}
+			auto obj = coerce_object(ctx, args[0], "Object.hash");
+			auto hash = obj.visit([](const auto& p) {
+				return reinterpret_cast<int64_t>(p.address());
 			});
-			return ctx.g.root<Value>(reinterpret_cast<int64_t>(ptr));
+			return ctx.g.root<Value>(hash);
 		}
 	)));
 
 	ctx.object_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
 		[](VMContext& ctx, const std::vector<Value>& args) {
-			auto ptr = args[0].visit(Overloaded {
-				[](const Ptr<Object>& x) -> void* { return x.address(); },
-				[](const Ptr<CppObject>& x) -> void* { return x.address(); },
-				[&](const auto&) -> void* {
-					error(ctx, "Unsupported operand ", args[0].inspect(),
-						" in Object.inspect expecting Object");
-					return nullptr;
-				}
+			auto obj = coerce_object(ctx, args[0], "Object.inspect");
+			auto ptr = obj.visit([](const auto& p) -> void* {
+				return p.address();
 			});
 			return Root<Value>(ctx.g.alloc(format("<Object#", ptr, ">")));
 		}
@@ -493,7 +507,7 @@ void load_string(Context& ctx) {
 			auto x = coerce_string(ctx, self, "String.get");
 			auto i = coerce_int(ctx, args[0], "String.get");
 			if (i < 0 || i >= int64_t(x->size())) {
-				error(ctx, "String index out of range");
+				error(ctx, "String.get: String index out of range");
 			}
 			auto y = x->substr(i, 1);
 			return Root<Value>(ctx.g.alloc(std::move(y)));
@@ -525,49 +539,36 @@ void load_function(Context& ctx) {
 
 	ctx.function_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
 		[](VMContext& ctx, const Value& self, const std::vector<Value>& args) {
-			auto b = self.visit(Overloaded {
-				[&](const Ptr<Function>& x) {
-					return args[0].holds<Ptr<Function>>() &&
-						x.address() == args[0].get<Ptr<Function>>().address();
+			auto func = coerce_function(ctx, self, "Function.==");
+			auto res = std::visit(Overloaded {
+				[](const Ptr<Function>& x, const Ptr<Function>& y) {
+					return x.address() == y.address();
 				},
-				[&](const Ptr<CppFunction>& x) {
-					return args[0].holds<Ptr<CppFunction>>() &&
-						x.address() == args[0].get<Ptr<CppFunction>>().address();
+				[](const Ptr<CppFunction>& x, const Ptr<CppFunction>& y) {
+					return x.address() == y.address();
 				},
-				[&](const auto&) {
-					error(ctx, "Unsupported operand ", self.inspect(),
-						" in Function.==, expecting Function");
+				[](const auto&, const auto&) {
 					return false;
 				}
-			});
-			return ctx.g.root<Value>(b);
+			}, func.inner, args[0].inner);
+			return ctx.g.root<Value>(res);
 		}
 	)));
 	ctx.function_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
 		[](VMContext& ctx, const std::vector<Value>& args) {
-			auto ptr = args[0].visit(Overloaded {
-				[](const Ptr<Function>& x) -> void* { return x.address(); },
-				[](const Ptr<CppFunction>& x) -> void* { return x.address(); },
-				[&](const auto&) -> void* {
-					error(ctx, "Unsupported operand ", args[0].inspect(),
-						" in Function.hash expecting Function");
-					return nullptr;
-				}
+			auto func = coerce_function(ctx, args[0], "Function.hash");
+			auto hash = func.visit([](const auto& p) {
+				return reinterpret_cast<int64_t>(p.address());
 			});
-			return ctx.g.root<Value>(reinterpret_cast<int64_t>(ptr));
+			return ctx.g.root<Value>(hash);
 		}
 	)));
 
 	ctx.function_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
 		[](VMContext& ctx, const std::vector<Value>& args) {
-			auto ptr = args[0].visit(Overloaded {
-				[](const Ptr<Function>& x) -> void* { return x.address(); },
-				[](const Ptr<CppFunction>& x) -> void* { return x.address(); },
-				[&](const auto&) -> void* {
-					error(ctx, "Unsupported operand ", args[0].inspect(),
-						" in Function.inspect expecting Function");
-					return nullptr;
-				}
+			auto func = coerce_function(ctx, args[0], "Function.inspect");
+			auto ptr = func.visit([](const auto& p) -> void* {
+				return p.address();
 			});
 			return Root<Value>(ctx.g.alloc(format("<Function#", ptr, ">")));
 		}
@@ -583,21 +584,15 @@ void load_function(Context& ctx) {
 void load_auxiliary(Context& ctx) {
 	ctx.builtins["print"] = *ctx.alloc(CppLambda(1,
 		[](VMContext& ctx, const std::vector<Value>& args) {
-			auto str = ctx.vm.send(args[0], "display");
-			if (!str->holds<Ptr<std::string>>()) {
-				error(ctx, "Wrong type returned from display");
-			}
-			std::cout << *str->get<Ptr<std::string>>();
+			auto repr = ctx.vm.send(args[0], "display");
+			std::cout << *coerce_string(ctx, *repr, "print");
 			return ctx.g.root<Value>();
 		}
 	));
 	ctx.builtins["println"] = *ctx.alloc(CppLambda(1,
 		[](VMContext& ctx, const std::vector<Value>& args) {
-			auto str = ctx.vm.send(args[0], "display");
-			if (!str->holds<Ptr<std::string>>()) {
-				error(ctx, "Wrong type returned from display");
-			}
-			std::cout << *str->get<Ptr<std::string>>() << std::endl;
+			auto repr = ctx.vm.send(args[0], "display");
+			std::cout << *coerce_string(ctx, *repr, "println") << std::endl;
 			return ctx.g.root<Value>();
 		}
 	));
