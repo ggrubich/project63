@@ -9,7 +9,7 @@ namespace {
 
 template<typename F>
 Root<Ptr<CppFunction>> make_binary(Context& ctx, F func) {
-	return ctx.alloc(CppLambda(2, [=](Context& ctx, const std::vector<Value>& xs) {
+	return ctx.alloc(CppLambda(2, [=](Context& ctx, VM&, const std::vector<Value>& xs) {
 		auto x = xs[0].get<int64_t>();
 		auto y = xs[1].get<int64_t>();
 		return ctx.root<Value>(func(x, y));

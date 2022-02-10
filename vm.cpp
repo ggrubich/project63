@@ -12,7 +12,13 @@ DataFrame::DataFrame(const Value& value)
 
 }  // namespace detaul
 
-VM::VM(Context& ctx) : ctx(ctx) {
+VM::VM(Context& ctx)
+	: ctx(ctx)
+	, data_bottom(0)
+	, call_bottom(0)
+	, exception_bottom(0)
+	, exception_thrown(false)
+{
 	auto _guard = ctx.root(this);
 	send_fallback_fn = *ctx.alloc<Function>(*ctx.alloc<FunctionProto>());
 	send_fallback_fn->proto->nargs = 3;
@@ -43,30 +49,38 @@ void VM::trace(Tracer& t) const {
 }
 
 Root<Value> VM::call(const Value& func, const std::vector<Value>& args) {
-	data_stack.clear();
-	call_stack.clear();
-	exception_stack.clear();
-	exception_thrown = false;
-
+	save_state();
 	push_data(func);
 	for (auto& arg : args) {
 		push_data(arg);
 	}
 	push_data(int64_t(args.size()));
 	call_();
-	return run();
+	try {
+		auto res = run();
+		restore_state();
+		return res;
+	}
+	catch (const Root<Value>& err) {
+		restore_state();
+		throw err;
+	}
 }
 
 Root<Value> VM::send(const Value& obj, const std::string& msg) {
-	data_stack.clear();
-	call_stack.clear();
-	exception_stack.clear();
-	exception_thrown = false;
-
+	save_state();
 	push_data(obj);
 	push_data(*ctx.alloc(msg));
 	send_();
-	return run();
+	try {
+		auto res = run();
+		restore_state();
+		return res;
+	}
+	catch (const Root<Value>& err) {
+		restore_state();
+		throw err;
+	}
 }
 
 Root<Value> VM::send_call(
@@ -78,8 +92,28 @@ Root<Value> VM::send_call(
 	return call(*func, args);
 }
 
+void VM::save_state() {
+	detail::StateFrame frame;
+	frame.data_bottom = data_bottom;
+	frame.call_bottom = call_bottom;
+	frame.exception_bottom = exception_bottom;
+	state_stack.emplace_back(frame);
+	data_bottom = data_stack.size();
+	call_bottom = call_stack.size();
+	exception_bottom = exception_stack.size();
+}
+
+void VM::restore_state() {
+	assert(state_stack.size() > 0 && "State stack underflow");
+	auto frame = state_stack.back();
+	state_stack.pop_back();
+	data_bottom = frame.data_bottom;
+	call_bottom = frame.call_bottom;
+	exception_bottom = frame.exception_bottom;
+}
+
 Value VM::remove_data(size_t off) {
-	assert(data_stack.size() > off && "Data stack underflow");
+	assert(data_stack.size() - data_bottom > off && "Data stack underflow");
 	size_t idx = data_stack.size() - 1 - off;
 	auto value = data_stack[idx].value;
 	if (data_stack[idx].upvalue) {
@@ -105,7 +139,7 @@ void VM::nip_data() {
 }
 
 Value& VM::get_data(size_t off) {
-	assert(data_stack.size() > off && "Data stack underflow");
+	assert(data_stack.size() - data_bottom > off && "Data stack underflow");
 	size_t idx = data_stack.size() - 1 - off;
 	return data_stack[idx].value;
 }
@@ -134,7 +168,10 @@ void VM::get_upvalue(size_t idx) {
 	auto& upvalues = call_stack.back().func->upvalues;
 	assert(idx < upvalues.size() && "Upvalue out of range");
 	push_data(upvalues[idx]->visit(Overloaded {
-		[&](uint64_t i) { return data_stack[i].value; },
+		[&](uint64_t i) {
+			assert(i < data_stack.size() && "Variable out of range");
+			return data_stack[i].value;
+		},
 		[](Value v) { return v; }
 	}));
 }
@@ -144,7 +181,10 @@ void VM::set_upvalue(size_t idx) {
 	assert(idx < upvalues.size() && "Upvalue out of range");
 	auto value = pop_data();
 	upvalues[idx]->visit(Overloaded {
-		[&](uint64_t i) { data_stack[i].value = value; },
+		[&](uint64_t i) {
+			assert(i < data_stack.size() && "Variable out of range");
+			data_stack[i].value = value;
+		},
 		[&](Value& v) { v = value; }
 	});
 }
@@ -260,7 +300,7 @@ void VM::call_foreign(const Ptr<CppFunction>& func, size_t n) {
 		(*args)[i] = pop_data();
 	}
 	try {
-		auto result = (*func)(ctx, *args);
+		auto result = (*func)(ctx, *this, *args);
 		push_data(*result);
 	}
 	catch (const Root<Value>& err) {
@@ -325,13 +365,13 @@ void VM::jump_cond(size_t addr, bool cond) {
 }
 
 void VM::throw_() {
-	if (exception_stack.size() == 0) {
+	if (exception_stack.size() == exception_bottom) {
 		auto value = pop_data();
-		while (data_stack.size() > 0) {
+		while (data_stack.size() > data_bottom) {
 			pop_data();
 		}
 		push_data(value);
-		call_stack.clear();
+		call_stack.erase(call_stack.begin() + call_bottom, call_stack.end());
 		exception_thrown = true;
 	}
 	else {
@@ -363,12 +403,12 @@ void VM::catch_(size_t addr) {
 }
 
 void VM::uncatch() {
-	assert(exception_stack.size() > 0 && "Exception stack underflow");
+	assert(exception_stack.size() > exception_bottom && "Exception stack underflow");
 	exception_stack.pop_back();
 }
 
 Root<Value> VM::run() {
-	while (call_stack.size() > 0) {
+	while (call_stack.size() > call_bottom) {
 		auto& frame = call_stack.back();
 		const auto& code = frame.func->proto->code;
 		assert(frame.ip < code.size() && "Instruction pointer out of range");
@@ -454,11 +494,12 @@ Root<Value> VM::run() {
 			break;
 		}
 	}
-	assert(data_stack.size() == 1 && "Data stack final size mismatch");
-	assert(call_stack.size() == 0 && "Call stack final size mismatch");
-	assert(exception_stack.size() == 0 && "Call stack final size mismatch");
+	assert(data_stack.size() == data_bottom + 1 && "Data stack final size mismatch");
+	assert(call_stack.size() == call_bottom && "Call stack final size mismatch");
+	assert(exception_stack.size() == exception_bottom && "Call stack final size mismatch");
 	auto result = ctx.root(pop_data());
 	if (exception_thrown) {
+		exception_thrown = false;
 		throw result;
 	} else {
 		return result;

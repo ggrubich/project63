@@ -238,6 +238,8 @@ private:
 	void dump_rec(std::ostream& buf, std::function<int64_t(const void*)>& label) const;
 };
 
+class VM;
+
 // Base classs for foreign functions implemented in C++.
 struct CppFunction {
 	uint64_t nargs;
@@ -247,7 +249,7 @@ struct CppFunction {
 	CppFunction(uint64_t nargs);
 	virtual ~CppFunction() = default;
 
-	virtual Root<Value> operator()(Context& ctx, const Args& args) = 0;
+	virtual Root<Value> operator()(Context& ctx, VM& vm, const Args& args) = 0;
 };
 
 // A native compound object.
@@ -314,6 +316,7 @@ private:
 // The callback F needs to have signature compatible with:
 //   Root<Value> f(
 //		Context& ctx,
+//		VM& vm,
 //		const std::vector<Value>& args,
 //		Cs&... captures
 //   );
@@ -325,7 +328,7 @@ struct CppLambda : CppFunction {
 
 	CppLambda(uint64_t nargs, F func, Cs... captures);
 
-	Root<Value> operator()(Context& ctx, const Args& args) override;
+	Root<Value> operator()(Context& ctx, VM& vm, const Args& args) override;
 };
 
 // Class for C++ method closures.
@@ -337,6 +340,7 @@ struct CppLambda : CppFunction {
 // The callback F needs to have a signature compatible with:
 //   Root<Value> f(
 //		Context& ctx,
+//		VM& vm,
 //		const Value& self,
 //		const std::vector<Value>& args,
 //		Cs&... captures
@@ -351,7 +355,7 @@ struct CppMethod : CppFunction {
 
 	CppMethod(uint64_t nargs, F func, Cs... captures);
 
-	Root<Value> operator()(Context& ctx, const Args& args) override;
+	Root<Value> operator()(Context& ctx, VM& vm, const Args& args) override;
 };
 
 // Implementations
@@ -433,15 +437,15 @@ CppLambda<F, Cs...>::CppLambda(uint64_t nargs, F func, Cs... captures)
 	, captures(std::move(captures)...)
 {
 	static_assert(
-		std::is_invocable_r_v<Root<Value>, F&, Context&, const Args&, Cs&...>,
+		std::is_invocable_r_v<Root<Value>, F&, Context&, VM&, const Args&, Cs&...>,
 		"Wrong function signture for CppLambda"
 	);
 }
 
 template<typename F, typename... Cs>
-Root<Value> CppLambda<F, Cs...>::operator()(Context& ctx, const Args& args) {
+Root<Value> CppLambda<F, Cs...>::operator()(Context& ctx, VM& vm, const Args& args) {
 	return std::apply([&](auto&... captures) {
-		return func(ctx, args, captures...);
+		return func(ctx, vm, args, captures...);
 	}, captures);
 }
 
@@ -463,23 +467,24 @@ CppMethod<F, Cs...>::CppMethod(uint64_t nargs, F func, Cs... captures)
 	, captures(std::move(captures)...)
 {
 	static_assert(
-		std::is_invocable_r_v<Root<Value>, F&, Context&, const Value&, const Args&, Cs&...>,
+		std::is_invocable_r_v<Root<Value>, F&, Context&, VM&, const Value&, const Args&, Cs&...>,
 		"Wrong function signture for CppMethod"
 	);
 }
 
 template<typename F, typename... Cs>
-Root<Value> CppMethod<F, Cs...>::operator()(Context& ctx, const Args& args) {
+Root<Value> CppMethod<F, Cs...>::operator()(Context& ctx, VM&, const Args& args) {
 	auto bound = std::apply([&](auto&... captures) {
 		return CppLambda(
 			bound_nargs,
 			[func = func](
 				Context& ctx,
+				VM& vm,
 				const Args& args,
 				const Value& self,
 				auto&... captures)
 			{
-				return func(ctx, self, args, captures...);
+				return func(ctx, vm, self, args, captures...);
 			},
 			args[0],
 			captures...

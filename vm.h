@@ -27,6 +27,12 @@ struct ExceptionFrame {
 	size_t address;
 };
 
+struct StateFrame {
+	size_t data_bottom;
+	size_t call_bottom;
+	size_t exception_bottom;
+};
+
 }  // namespace detail
 
 class VM {
@@ -35,6 +41,10 @@ private:
 	std::vector<detail::DataFrame> data_stack;
 	std::vector<detail::CallFrame> call_stack;
 	std::vector<detail::ExceptionFrame> exception_stack;
+	size_t data_bottom;
+	size_t call_bottom;
+	size_t exception_bottom;
+	std::vector<detail::StateFrame> state_stack;
 	bool exception_thrown;
 
 	// Function called when an object doesn't have a requested method but has
@@ -63,6 +73,9 @@ public:
 	);
 
 private:
+	void save_state();
+	void restore_state();
+
 	Value remove_data(size_t off);
 	Value pop_data();
 	void nip_data();

@@ -57,7 +57,7 @@ void load_object(Context& ctx) {
 	ctx.builtins["Object"] = ctx.object_cls;
 
 	ctx.object_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto b = self.visit(Overloaded {
 				[&](const Ptr<Object>& x) {
 					return args[0].holds<Ptr<Object>>() &&
@@ -77,14 +77,13 @@ void load_object(Context& ctx) {
 		}
 	)));
 	ctx.object_cls->define(ctx, "!=", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
-			auto vm = ctx.root(VM(ctx));
-			auto res = vm->send_call(self, "==", args);
-			return vm->send(*res, "!");
+		[](Context&, VM& vm, const Value& self, const std::vector<Value>& args) {
+			auto res = vm.send_call(self, "==", args);
+			return vm.send(*res, "!");
 		}
 	)));
 	ctx.object_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto ptr = args[0].visit(Overloaded {
 				[](const Ptr<Object>& x) -> void* { return x.address(); },
 				[](const Ptr<CppObject>& x) -> void* { return x.address(); },
@@ -99,7 +98,7 @@ void load_object(Context& ctx) {
 	)));
 
 	ctx.object_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto ptr = args[0].visit(Overloaded {
 				[](const Ptr<Object>& x) -> void* { return x.address(); },
 				[](const Ptr<CppObject>& x) -> void* { return x.address(); },
@@ -113,20 +112,19 @@ void load_object(Context& ctx) {
 		}
 	)));
 	ctx.object_cls->define(ctx, "display", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
-			auto vm = ctx.root(VM(ctx));
-			return vm->send(args[0], "inspect");
+		[](Context&, VM& vm, const std::vector<Value>& args) {
+			return vm.send(args[0], "inspect");
 		}
 	)));
 
 	ctx.object_cls->define(ctx, "class", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto cls = args[0].class_of(ctx);
 			return ctx.root<Value>(cls);
 		}
 	)));
 	ctx.object_cls->define(ctx, "instance?", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto cls = self.class_of(ctx);
 			auto base = coerce_class(ctx, args[0], "Object.instance?");
 			while (true) {
@@ -143,21 +141,20 @@ void load_object(Context& ctx) {
 		}
 	)));
 	ctx.object_cls->define(ctx, "send", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM& vm, const Value& self, const std::vector<Value>& args) {
 			auto msg = coerce_string(ctx, args[0], "Object.send");
-			auto vm = ctx.root(VM(ctx));
-			return vm->send(self, *msg);
+			return vm.send(self, *msg);
 		}
 	)));
 
 	ctx.object_cls->klass->define(ctx, "allocate", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, args[0], "Object.class.allocate");
 			return Root<Value>(ctx.alloc<Object>(cls));
 		}
 	)));
 	ctx.object_cls->klass->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_class(ctx, args[0], "Object.class.inspect");
 			std::string str;
 			if (x.address() == ctx.object_cls.address()) {
@@ -175,7 +172,7 @@ void load_class(Context& ctx) {
 	ctx.builtins["Class"] = ctx.class_cls;
 
 	ctx.class_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_class(ctx, self, "Class.==");
 			auto res = args[0].holds<Ptr<Klass>>() &&
 				x.address() == args[0].get<Ptr<Klass>>().address();
@@ -183,7 +180,7 @@ void load_class(Context& ctx) {
 		}
 	)));
 	ctx.class_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_class(ctx, args[0], "Class.hash");
 			auto h = reinterpret_cast<int64_t>(x.address());
 			return ctx.root<Value>(h);
@@ -191,7 +188,7 @@ void load_class(Context& ctx) {
 	)));
 
 	ctx.class_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, args[0], "Class.inspect");
 			std::string str;
 			if (cls.address() == ctx.class_cls.address()) {
@@ -205,13 +202,13 @@ void load_class(Context& ctx) {
 	)));
 
 	ctx.class_cls->define(ctx, "subclass", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, args[0], "Class.subclass");
 			return Root<Value>(ctx.alloc<Klass>(ctx, cls));
 		}
 	)));
 	ctx.class_cls->define(ctx, "superclass", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, args[0], "Class.superclass");
 			if (cls->base) {
 				return ctx.root<Value>(*cls->base);
@@ -223,7 +220,7 @@ void load_class(Context& ctx) {
 	)));
 
 	ctx.class_cls->define(ctx, "lookup", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, self, "Class.lookup");
 			auto name = coerce_string(ctx, args[0], "Class.lookup");
 			auto meth = cls->lookup(*name);
@@ -236,7 +233,7 @@ void load_class(Context& ctx) {
 		}
 	)));
 	ctx.class_cls->define(ctx, "define", *ctx.alloc(CppMethod(2,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, self, "Class.define");
 			auto name = coerce_string(ctx, args[0], "Class.define");
 			auto value = args[1];
@@ -245,7 +242,7 @@ void load_class(Context& ctx) {
 		}
 	)));
 	ctx.class_cls->define(ctx, "undefine", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto cls = coerce_class(ctx, self, "Class.undefine");
 			auto name = coerce_string(ctx, args[0], "Class.undefine");
 			cls->remove(*name);
@@ -261,26 +258,26 @@ void load_nil(Context& ctx) {
 	ctx.builtins["Nil"] = ctx.nil_cls;
 
 	ctx.nil_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			coerce_nil(ctx, self, "Nil.==");
 			return ctx.root<Value>(args[0].holds<Nil>());
 		}
 	)));
 	ctx.nil_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return ctx.root<Value>(int64_t(-1));
 		}
 	)));
 
 	ctx.nil_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			coerce_nil(ctx, args[0], "Nil.inspect");
 			return Root<Value>(ctx.alloc<std::string>("nil"));
 		}
 	)));
 
 	ctx.nil_cls->klass->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return Root<Value>(ctx.alloc<std::string>("Nil"));
 		}
 	)));
@@ -294,35 +291,35 @@ void load_bool(Context& ctx) {
 	ctx.builtins["Bool"] = ctx.bool_cls;
 
 	ctx.bool_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_bool(ctx, self, "Bool.==");
 			auto res = args[0].holds<bool>() && args[0].get<bool>() == x;
 			return ctx.root<Value>(res);
 		}
 	)));
 	ctx.bool_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_bool(ctx, args[0], "Bool.hash");
 			return ctx.root<Value>(int64_t(x));
 		}
 	)));
 
 	ctx.bool_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_bool(ctx, args[0], "Bool.inspect");
 			return Root<Value>(ctx.alloc<std::string>(x ? "true" : "false"));
 		}
 	)));
 
 	ctx.bool_cls->define(ctx, "!", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_bool(ctx, args[0], "Bool.!");
 			return ctx.root<Value>(!x);
 		}
 	)));
 
 	ctx.bool_cls->klass->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return Root<Value>(ctx.alloc<std::string>("Bool"));
 		}
 	)));
@@ -332,7 +329,7 @@ template<typename F>
 Ptr<CppFunction> binary_int_op(Context& ctx, const char* where, F fun) {
 	return *ctx.alloc(CppMethod(1,
 		[where = where, fun = fun]
-		(Context& ctx, const Value& self, const std::vector<Value>& args) {
+		(Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_int(ctx, self, where);
 			auto y = coerce_int(ctx, args[0], where);
 			auto res = fun(ctx, x, y);
@@ -347,28 +344,28 @@ void load_int(Context& ctx) {
 	ctx.builtins["Int"] = ctx.int_cls;
 
 	ctx.int_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_int(ctx, self, "Int.==");
 			auto res = args[0].holds<int64_t>() && x == args[0].get<int64_t>();
 			return ctx.root<Value>(res);
 		}
 	)));
 	ctx.int_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_int(ctx, args[0], "Int.hash");
 			return ctx.root<Value>(x);
 		}
 	)));
 
 	ctx.int_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_int(ctx, args[0], "Int.inspect");
 			return Root<Value>(ctx.alloc(format(x)));
 		}
 	)));
 
 	ctx.int_cls->define(ctx, "~", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_int(ctx, args[0], "Int.~");
 			if (x == INT64_MAX) {
 				error(ctx, "Int overflow");
@@ -422,18 +419,18 @@ void load_int(Context& ctx) {
 		[](Context&, int64_t x, int64_t y) { return x >= y; }));
 
 	ctx.int_cls->klass->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return Root<Value>(ctx.alloc<std::string>("Int"));
 		}
 	)));
 
 	ctx.int_cls->klass->define(ctx, "max", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return ctx.root<Value>(std::numeric_limits<int64_t>::max());
 		}
 	)));
 	ctx.int_cls->klass->define(ctx, "min", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return ctx.root<Value>(std::numeric_limits<int64_t>::min());
 		}
 	)));
@@ -445,7 +442,7 @@ void load_string(Context& ctx) {
 	ctx.builtins["String"] = ctx.string_cls;
 
 	ctx.string_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, self, "String.==");
 			auto res = args[0].holds<Ptr<std::string>>() &&
 				(*x == *args[0].get<Ptr<std::string>>());
@@ -453,7 +450,7 @@ void load_string(Context& ctx) {
 		}
 	)));
 	ctx.string_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, args[0], "String.hash");
 			auto h = static_cast<int64_t>(std::hash<std::string>{}(*x));
 			return ctx.root<Value>(h);
@@ -461,39 +458,38 @@ void load_string(Context& ctx) {
 	)));
 
 	ctx.string_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, args[0], "String.inspect");
 			return Root<Value>(ctx.alloc(quote_string(*x)));
 		}
 	)));
 	ctx.string_cls->define(ctx, "display", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, args[0], "String.display");
 			return ctx.root<Value>(x);
 		}
 	)));
 
 	ctx.string_cls->define(ctx, "++", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM& vm, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, self, "String.++");
 			auto arg = ctx.root(args[0]);
 			if (!arg->holds<Ptr<std::string>>()) {
-				auto vm = ctx.root<VM>(ctx);
-				arg = vm->send(*arg, "display");
+				arg = vm.send(*arg, "display");
 			}
 			auto y = coerce_string(ctx, *arg, "String.++");
 			return Root<Value>(ctx.alloc(*x + *y));
 		}
 	)));
 	ctx.string_cls->define(ctx, "len", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, args[0], "String.len");
 			auto n = static_cast<int64_t>(x->size());
 			return ctx.root<Value>(n);
 		}
 	)));
 	ctx.string_cls->define(ctx, "get", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, self, "String.get");
 			auto i = coerce_int(ctx, args[0], "String.get");
 			if (i < 0 || i >= int64_t(x->size())) {
@@ -504,7 +500,7 @@ void load_string(Context& ctx) {
 		}
 	)));
 	ctx.string_cls->define(ctx, "substr", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto x = coerce_string(ctx, self, "String.substr");
 			auto a = coerce_int(ctx, args[0], "String.substr");
 			auto b = coerce_int(ctx, args[1], "String.substr");
@@ -516,7 +512,7 @@ void load_string(Context& ctx) {
 	)));
 
 	ctx.string_cls->klass->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return Root<Value>(ctx.alloc<std::string>("String"));
 		}
 	)));
@@ -528,7 +524,7 @@ void load_function(Context& ctx) {
 	ctx.builtins["Function"] = ctx.function_cls;
 
 	ctx.function_cls->define(ctx, "==", *ctx.alloc(CppMethod(1,
-		[](Context& ctx, const Value& self, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const Value& self, const std::vector<Value>& args) {
 			auto b = self.visit(Overloaded {
 				[&](const Ptr<Function>& x) {
 					return args[0].holds<Ptr<Function>>() &&
@@ -548,7 +544,7 @@ void load_function(Context& ctx) {
 		}
 	)));
 	ctx.function_cls->define(ctx, "hash", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto ptr = args[0].visit(Overloaded {
 				[](const Ptr<Function>& x) -> void* { return x.address(); },
 				[](const Ptr<CppFunction>& x) -> void* { return x.address(); },
@@ -563,7 +559,7 @@ void load_function(Context& ctx) {
 	)));
 
 	ctx.function_cls->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
+		[](Context& ctx, VM&, const std::vector<Value>& args) {
 			auto ptr = args[0].visit(Overloaded {
 				[](const Ptr<Function>& x) -> void* { return x.address(); },
 				[](const Ptr<CppFunction>& x) -> void* { return x.address(); },
@@ -578,7 +574,7 @@ void load_function(Context& ctx) {
 	)));
 
 	ctx.function_cls->klass->define(ctx, "inspect", *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>&) {
+		[](Context& ctx, VM&, const std::vector<Value>&) {
 			return Root<Value>(ctx.alloc<std::string>("Function"));
 		}
 	)));
@@ -586,9 +582,8 @@ void load_function(Context& ctx) {
 
 void load_auxiliary(Context& ctx) {
 	ctx.builtins["print"] = *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
-			auto vm = ctx.root(VM(ctx));
-			auto str = vm->send(args[0], "display");
+		[](Context& ctx, VM& vm, const std::vector<Value>& args) {
+			auto str = vm.send(args[0], "display");
 			if (!str->holds<Ptr<std::string>>()) {
 				error(ctx, "Wrong type returned from display");
 			}
@@ -597,9 +592,8 @@ void load_auxiliary(Context& ctx) {
 		}
 	));
 	ctx.builtins["println"] = *ctx.alloc(CppLambda(1,
-		[](Context& ctx, const std::vector<Value>& args) {
-			auto vm = ctx.root(VM(ctx));
-			auto str = vm->send(args[0], "display");
+		[](Context& ctx, VM& vm, const std::vector<Value>& args) {
+			auto str = vm.send(args[0], "display");
 			if (!str->holds<Ptr<std::string>>()) {
 				error(ctx, "Wrong type returned from display");
 			}
