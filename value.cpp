@@ -161,6 +161,8 @@ void Function::dump_rec(
 	}
 }
 
+VMContext::operator Context&() { return g; }
+
 CppFunction::CppFunction(uint64_t nargs) : nargs(nargs) {}
 
 Object::Object(const Ptr<Klass>& klass)

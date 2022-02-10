@@ -300,7 +300,8 @@ void VM::call_foreign(const Ptr<CppFunction>& func, size_t n) {
 		(*args)[i] = pop_data();
 	}
 	try {
-		auto result = (*func)(ctx, *this, *args);
+		VMContext vm_ctx{ctx, *this};
+		auto result = (*func)(vm_ctx, *args);
 		push_data(*result);
 	}
 	catch (const Root<Value>& err) {

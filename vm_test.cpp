@@ -9,20 +9,20 @@ namespace {
 
 template<typename F>
 Root<Ptr<CppFunction>> make_unary(Context& ctx, F f) {
-	return ctx.alloc(CppLambda(1, [=](Context& ctx, VM&, const std::vector<Value>& xs) {
+	return ctx.alloc(CppLambda(1, [=](VMContext& ctx, const std::vector<Value>& xs) {
 		assert(xs.size() == 1);
 		auto x = std::get<int64_t>(xs[0].inner);
-		return ctx.root(Value(f(x)));
+		return ctx.g.root(Value(f(x)));
 	}));
 }
 
 template<typename F>
 Root<Ptr<CppFunction>> make_binary(Context& ctx, F f) {
-	return ctx.alloc(CppLambda(2, [=](Context& ctx, VM&, const std::vector<Value>& xs) {
+	return ctx.alloc(CppLambda(2, [=](VMContext& ctx, const std::vector<Value>& xs) {
 		assert(xs.size() == 2);
 		auto x = std::get<int64_t>(xs[0].inner);
 		auto y = std::get<int64_t>(xs[1].inner);
-		return ctx.root(Value(f(x, y)));
+		return ctx.g.root(Value(f(x, y)));
 	}));
 }
 
@@ -396,8 +396,8 @@ TEST(VmTest, Methods) {
 	// Left inherits from Base and defines following methods:
 	//  - foo - returns "derived_foo"
 	auto left_cls = ctx.alloc<Klass>(ctx, *base_cls);
-	auto left_foo = ctx.alloc(CppLambda(1, [](Context& ctx, VM&, const std::vector<Value>&) {
-		return ctx.alloc<std::string>("derived_foo");
+	auto left_foo = ctx.alloc(CppLambda(1, [](VMContext& ctx, const std::vector<Value>&) {
+		return ctx.g.alloc<std::string>("derived_foo");
 	}));
 	(*left_cls)->define(ctx, "foo", *left_foo);
 
@@ -406,9 +406,9 @@ TEST(VmTest, Methods) {
 	auto right_cls = ctx.alloc<Klass>(ctx, *base_cls);
 	auto right_not_understood = ctx.alloc(CppMethod(
 		1,
-		[](Context& ctx, VM&, const Value&, const std::vector<Value>& xs) {
+		[](VMContext& ctx, const Value&, const std::vector<Value>& xs) {
 			auto x = xs[0].get<Ptr<std::string>>();
-			return ctx.alloc<std::string>(std::string("generated_") + *x);
+			return ctx.g.alloc<std::string>(std::string("generated_") + *x);
 		}
 	));
 	(*right_cls)->define(ctx, "not_understood", *right_not_understood);
