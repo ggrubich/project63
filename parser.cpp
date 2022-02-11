@@ -70,6 +70,24 @@ std::ostream& show_expr(std::ostream& s, Indent indent, const Expression& expr) 
 			s << indent << "}";
 		},
 
+		[&](const GetIndexExpr& expr) {
+			s << indent << "GetIndex{\n";
+			show_expr(s, indent+1, *expr.obj) << ",\n";
+			for (auto& e : expr.keys) {
+				show_expr(s, indent+1, *e) << ",\n";
+			}
+			s << indent << "}";
+		},
+		[&](const SetIndexExpr& expr) {
+			s << indent << "SetIndex{\n";
+			show_expr(s, indent+1, *expr.obj) << ",\n";
+			for (auto& e : expr.keys) {
+				show_expr(s, indent+1, *e) << ",\n";
+			}
+			show_expr(s, indent+1, *expr.value) << ",\n";
+			s << indent << "}";
+		},
+
 		[&](const CallExpr& expr) {
 			s << indent << "Call{\n";
 			show_expr(s, indent+1, *expr.func) << ",\n";
@@ -269,6 +287,14 @@ bool operator==(const Expression& e1, const Expression& e2) {
 		[](const SetPropExpr& x, const SetPropExpr& y) {
 			return (*x.obj == *y.obj) && x.name == y.name && (*x.value == *y.value);
 		},
+		[](const GetIndexExpr& x, const GetIndexExpr& y) {
+			return (*x.obj == *y.obj) && all_equal(x.keys, y.keys);
+		},
+		[](const SetIndexExpr& x, const SetIndexExpr& y) {
+			return (*x.obj == *y.obj) &&
+				all_equal(x.keys, y.keys) &&
+				(*x.value == *y.value);
+		},
 		[](const CallExpr& x, const CallExpr& y) {
 			return (*x.func == *y.func) && all_equal(x.args, y.args);
 		},
@@ -374,8 +400,10 @@ enum class TokenType {
 	At,         // @
 	Dot,        // .
 	Comma,      // ,
-	LBrace,     // {
-	RBrace,     // }
+	LSquare,    // [
+	RSquare,    // ]
+	LCurly,     // {
+	RCurly,     // }
 	Semicolon,  // ;
 	LParen,     // (
 	RParen,     // )
@@ -413,8 +441,10 @@ std::ostream& operator<<(std::ostream& s, TokenType type) {
 	case TokenType::At:         s << "at sign (@)"; break;
 	case TokenType::Dot:        s << "dot (.)"; break;
 	case TokenType::Comma:      s << "comma (,)"; break;
-	case TokenType::LBrace:     s << "left brace ({)"; break;
-	case TokenType::RBrace:     s << "right brace (})"; break;
+	case TokenType::LSquare:    s << "left square bracket ([)"; break;
+	case TokenType::RSquare:    s << "right square bracket (])"; break;
+	case TokenType::LCurly:     s << "left curly brace ({)"; break;
+	case TokenType::RCurly:     s << "right curly brace (})"; break;
 	case TokenType::Semicolon:  s << "semicolon (;)"; break;
 	case TokenType::LParen:     s << "left parenthesis (()"; break;
 	case TokenType::RParen:     s << "right parenthesis ())"; break;
@@ -461,8 +491,10 @@ constexpr auto known_symbols = std::array{
 	std::pair{"@"sv, TokenType::At},
 	std::pair{"."sv, TokenType::Dot},
 	std::pair{","sv, TokenType::Comma},
-	std::pair{"{"sv, TokenType::LBrace},
-	std::pair{"}"sv, TokenType::RBrace},
+	std::pair{"["sv, TokenType::LSquare},
+	std::pair{"]"sv, TokenType::RSquare},
+	std::pair{"{"sv, TokenType::LCurly},
+	std::pair{"}"sv, TokenType::RCurly},
 	std::pair{";"sv, TokenType::Semicolon},
 	std::pair{"("sv, TokenType::LParen},
 	std::pair{")"sv, TokenType::RParen},
@@ -625,6 +657,9 @@ public:
 	ExpressionPtr parse_try();
 	ExpressionPtr parse_defer();
 
+	template<typename T, typename F>
+	std::vector<T> parse_list(TokenType open, TokenType close, F item, const char* context);
+
 	std::vector<std::string> parse_arguments();
 	ExpressionPtr parse_lambda();
 	ExpressionPtr parse_method();
@@ -708,22 +743,22 @@ ExpressionPtr Parser::parse_let() {
 }
 
 std::vector<ExpressionPtr> Parser::parse_block() {
-	expect(tokens.next(), TokenType::LBrace, "block");
+	expect(tokens.next(), TokenType::LCurly, "block");
 	std::vector<ExpressionPtr> result;
 	while (true) {
 		auto tok = tokens.peek();
-		if (tok.type != TokenType::RBrace && tok.type != TokenType::Semicolon) {
+		if (tok.type != TokenType::RCurly && tok.type != TokenType::Semicolon) {
 			result.emplace_back(parse_expr());
 		}
 		else {
 			result.emplace_back(make_expr<EmptyExpr>());
 		}
 		tok = tokens.next();
-		if (tok.type == TokenType::RBrace) {
+		if (tok.type == TokenType::RCurly) {
 			break;
 		}
 		else if (tok.type != TokenType::Semicolon) {
-			unexpected(tok, "right brace or semicolon", "block");
+			unexpected(tok, "right curly brace or semicolon", "block");
 		}
 	}
 	return result;
@@ -775,23 +810,40 @@ ExpressionPtr Parser::parse_defer() {
 	return make_expr<DeferExpr>(expr);
 }
 
-std::vector<std::string> Parser::parse_arguments() {
-	expect(tokens.next(), TokenType::LParen, "argument list");
-	std::vector<std::string> result;
-	while (tokens.peek().type != TokenType::RParen) {
-		auto tok = tokens.next();
-		expect(tok, TokenType::Identifier, "argument list");
-		result.emplace_back(tok.str);
-		tok = tokens.peek();
+template<typename T, typename F>
+std::vector<T> Parser::parse_list(
+		TokenType open,
+		TokenType close,
+		F item,
+		const char* context)
+{
+	expect(tokens.next(), open, context);
+	std::vector<T> result;
+	while (tokens.peek().type != close) {
+		result.emplace_back(item());
+		auto tok = tokens.peek();
 		if (tok.type == TokenType::Comma) {
 			tokens.next();
 		}
 		else {
-			expect(tok, TokenType::RParen, "argument list");
+			expect(tok, close, context);
 		}
 	}
 	tokens.next();
 	return result;
+}
+
+std::vector<std::string> Parser::parse_arguments() {
+	return parse_list<std::string>(
+		TokenType::LParen,
+		TokenType::RParen,
+		[&]() {
+			auto tok = tokens.next();
+			expect(tok, TokenType::Identifier, "argument list");
+			return std::string(tok.str);
+		},
+		"argument list"
+	);
 }
 
 ExpressionPtr Parser::parse_lambda() {
@@ -809,7 +861,7 @@ ExpressionPtr Parser::parse_method() {
 		result.args = parse_arguments();
 		result.body = parse_block();
 	}
-	else if (tok.type == TokenType::LBrace) {
+	else if (tok.type == TokenType::LCurly) {
 		result.body = parse_block();
 	}
 	else {
@@ -893,7 +945,7 @@ ExpressionPtr Parser::parse_basic_expr() {
 		result = parse_throw();
 		break;
 
-	case TokenType::LBrace:
+	case TokenType::LCurly:
 		result = make_expr<BlockExpr>(parse_block());
 		break;
 	case TokenType::LParen:
@@ -924,19 +976,12 @@ ExpressionPtr Parser::parse_unary_expr() {
 		tok = tokens.peek();
 		// function call
 		if (tok.type == TokenType::LParen) {
-			tokens.next();
-			std::vector<ExpressionPtr> args;
-			while (tokens.peek().type != TokenType::RParen) {
-				args.emplace_back(parse_expr());
-				tok = tokens.peek();
-				if (tok.type == TokenType::Comma) {
-					tokens.next();
-				}
-				else {
-					expect(tok, TokenType::RParen, "function call");
-				}
-			}
-			tokens.next();
+			auto args = parse_list<ExpressionPtr>(
+				TokenType::LParen,
+				TokenType::RParen,
+				[&]() { return parse_expr(); },
+				"function call"
+			);
 			result = make_expr<CallExpr>(result, args);
 		}
 		// message send
@@ -961,6 +1006,23 @@ ExpressionPtr Parser::parse_unary_expr() {
 			}
 			else {
 				result = make_expr<GetPropExpr>(result, prop);
+			}
+		}
+		// index access
+		else if (tok.type == TokenType::LSquare) {
+			auto keys = parse_list<ExpressionPtr>(
+				TokenType::LSquare,
+				TokenType::RSquare,
+				[&]() { return parse_expr(); },
+				"indexing expression"
+			);
+			if (tokens.peek().type == TokenType::Equals) {
+				tokens.next();
+				auto value = parse_expr();
+				result = make_expr<SetIndexExpr>(result, keys, value);
+			}
+			else {
+				result = make_expr<GetIndexExpr>(result, keys);
 			}
 		}
 		else {

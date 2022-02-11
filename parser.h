@@ -21,6 +21,16 @@ struct AssignExpr { std::string name; ExpressionPtr value; };
 struct GetPropExpr { ExpressionPtr obj; std::string name; };
 struct SetPropExpr { ExpressionPtr obj; std::string name; ExpressionPtr value; };
 
+struct GetIndexExpr {
+	ExpressionPtr obj;
+	std::vector<ExpressionPtr> keys;
+};
+struct SetIndexExpr {
+	ExpressionPtr obj;
+	std::vector<ExpressionPtr> keys;
+	ExpressionPtr value;
+};
+
 struct CallExpr { ExpressionPtr func; std::vector<ExpressionPtr> args; };
 struct SendExpr { ExpressionPtr obj; std::string msg; };
 struct UnaryExpr { std::string op; ExpressionPtr value; };
@@ -69,6 +79,9 @@ struct Expression : Variant<
 
 	GetPropExpr,
 	SetPropExpr,
+
+	GetIndexExpr,
+	SetIndexExpr,
 
 	CallExpr,
 	SendExpr,

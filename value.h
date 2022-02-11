@@ -157,7 +157,11 @@ struct Instruction {
 
 std::ostream& operator<<(std::ostream& s, Instruction instr);
 
+struct Value;
+
 struct Nil {};
+
+using Array = std::vector<Value>;
 
 struct Function;
 
@@ -177,6 +181,7 @@ struct Value : Variant<
 	bool,
 	int64_t,
 	Ptr<std::string>,
+	Ptr<Array>,
 	Ptr<Function>,
 	Ptr<CppFunction>,
 	Ptr<Object>,
@@ -204,6 +209,7 @@ struct Context : public Collector {
 	Ptr<Klass> bool_cls;
 	Ptr<Klass> int_cls;
 	Ptr<Klass> string_cls;
+	Ptr<Klass> array_cls;
 	Ptr<Klass> function_cls;
 
 	std::unordered_map<std::string, Value> builtins;

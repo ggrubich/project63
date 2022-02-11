@@ -119,6 +119,9 @@ private:
 	void compile_get_prop(const GetPropExpr& expr);
 	void compile_set_prop(const SetPropExpr& expr);
 
+	void compile_get_index(const GetIndexExpr& expr);
+	void compile_set_index(const SetIndexExpr& expr);
+
 	void compile_call(const CallExpr& expr);
 	void compile_send(const SendExpr& expr);
 	void compile_unary(const UnaryExpr& expr);

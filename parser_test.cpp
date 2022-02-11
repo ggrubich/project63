@@ -219,7 +219,8 @@ TEST(ParserTest, UnaryOperators) {
 	std::string_view input =
 		"-!foo@bar.baz(x.+(x), y);"
 		"self@x = foo() + bar.baz;"
-		"void(f(()), g(x, y, z,))";
+		"void(f(()), g(x, y, z,));"
+		"xs[ys[i], y] = zs[j,k,]";
 
 	auto expected = ExpressionSeq{{
 		make_expr<UnaryExpr>("-", make_expr<UnaryExpr>("!", make_expr<CallExpr>(
@@ -269,6 +270,24 @@ TEST(ParserTest, UnaryOperators) {
 				}
 			),
 		}),
+
+		make_expr<SetIndexExpr>(
+			make_expr<VariableExpr>("xs"),
+			std::vector{
+				make_expr<GetIndexExpr>(
+					make_expr<VariableExpr>("ys"),
+					std::vector{make_expr<VariableExpr>("i")}
+				),
+				make_expr<VariableExpr>("y"),
+			},
+			make_expr<GetIndexExpr>(
+				make_expr<VariableExpr>("zs"),
+				std::vector{
+					make_expr<VariableExpr>("j"),
+					make_expr<VariableExpr>("k"),
+				}
+			)
+		),
 	}};
 	auto actual = parse_expr_seq(input);
 	EXPECT_EQ(actual, expected);

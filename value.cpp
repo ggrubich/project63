@@ -74,6 +74,7 @@ Ptr<Klass> Value::class_of(Context& ctx) const {
 		[&](const bool&) { return ctx.bool_cls; },
 		[&](const int64_t&) { return ctx.int_cls; },
 		[&](const Ptr<std::string>&) { return ctx.string_cls; },
+		[&](const Ptr<Array>&) { return ctx.array_cls; },
 		[&](const Ptr<Function>&) { return ctx.function_cls; },
 		[&](const Ptr<CppFunction>&) { return ctx.function_cls; },
 		[&](const Ptr<Object>& obj) { return obj->klass; },
@@ -82,6 +83,22 @@ Ptr<Klass> Value::class_of(Context& ctx) const {
 	});
 }
 
+namespace {
+
+std::string inspect_array(const Array& arr) {
+	std::stringstream buf;
+	buf << "[";
+	for (size_t i = 0; i < arr.size(); ++i) {
+		if (i+1 < arr.size()) {
+			buf << ", ";
+		}
+	}
+	buf << "]";
+	return buf.str();
+}
+
+}  // namespace anonymous
+
 std::string Value::inspect() const {
 	std::stringstream buf;
 	visit(Overloaded {
@@ -89,6 +106,7 @@ std::string Value::inspect() const {
 		[&](const bool& b) { buf << (b ? "true" : "false"); },
 		[&](const int64_t& n) { buf << n; },
 		[&](const Ptr<std::string>& str) { buf << quote_string(*str); },
+		[&](const Ptr<Array>& arr) { buf << inspect_array(*arr); },
 		[&](const Ptr<Function>& x) { buf << "Function#" << x.address(); },
 		[&](const Ptr<CppFunction>& x) { buf << "CppFunction#" << x.address(); },
 		[&](const Ptr<Object>& x) { buf << "Object#" << x.address(); },
@@ -143,6 +161,7 @@ void Function::dump_rec(
 				[&](const bool&) { buffer << value.inspect(); },
 				[&](const int64_t&) { buffer << value.inspect(); },
 				[&](const Ptr<std::string>&) { buffer << value.inspect(); },
+				[&](const Ptr<Array>&) { buffer << value.inspect(); },
 				[&](const auto& ptr) {
 					auto tmp = value.inspect();
 					buffer << tmp.substr(0, tmp.find('#')) <<

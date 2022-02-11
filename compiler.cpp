@@ -233,6 +233,22 @@ void Compiler::compile_set_prop(const SetPropExpr& expr) {
 	pop_local();
 }
 
+void Compiler::compile_get_index(const GetIndexExpr& expr) {
+	compile_call(CallExpr{
+		make_expr<SendExpr>(expr.obj, "[]"),
+		expr.keys
+	});
+}
+
+void Compiler::compile_set_index(const SetIndexExpr& expr) {
+	auto args = expr.keys;
+	args.emplace_back(expr.value);
+	compile_call(CallExpr{
+		make_expr<SendExpr>(expr.obj, "[]="),
+		args
+	});
+}
+
 void Compiler::compile_call(const CallExpr& expr) {
 	compile_expr(*expr.func);
 	for (auto& arg : expr.args) {
@@ -285,6 +301,15 @@ void Compiler::declare_expr(const Expression& expr) {
 		},
 		[&](const SetPropExpr& expr) {
 			declare_expr(*expr.obj);
+			declare_expr(*expr.value);
+		},
+		[&](const GetIndexExpr& expr) {
+			declare_expr(*expr.obj);
+			declare_expr_chain(expr.keys);
+		},
+		[&](const SetIndexExpr& expr) {
+			declare_expr(*expr.obj);
+			declare_expr_chain(expr.keys);
 			declare_expr(*expr.value);
 		},
 		[&](const CallExpr& expr) {
@@ -705,6 +730,12 @@ void Compiler::compile_expr(const Expression& expr) {
 		},
 		[&](const SetPropExpr& expr) {
 			compile_set_prop(expr);
+		},
+		[&](const GetIndexExpr& expr) {
+			compile_get_index(expr);
+		},
+		[&](const SetIndexExpr& expr) {
+			compile_set_index(expr);
 		},
 		[&](const CallExpr& expr) {
 			compile_call(expr);
